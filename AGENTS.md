@@ -33,9 +33,22 @@
 - Keep plain PII fields empty/null.
 - For OSS database publishing, run anonymization command before push.
 
+## Public Backup Policy
+- Never commit live `db.sqlite3` to public repo.
+- Use public-safe snapshot flow:
+  - `bash deploy/prepare_public_backup.sh`
+  - commit `snapshots/db_public.sqlite3` only.
+- For VPS restore after `git pull`, use:
+  - `bash deploy/init_after_pull.sh`
+  - this bootstrap script is the source of truth for first-run init.
+
 ## Moment Report Location
 - `Astrologický rozbor okamihu` is anchored to Bratislava.
 - Keep location context explicit in prompts and output:
   - `Bratislava, Slovensko`
   - `lat: 48.1486`
   - `lon: 17.1077`
+
+## UX Consistency
+- Keep the wheel visual language consistent between landing, `/okamih/`, and e-mail snapshot.
+- Planet glyphs are rendered without filled planet circles (symbol-first style).
