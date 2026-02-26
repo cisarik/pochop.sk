@@ -35,3 +35,4 @@ Thumbs.db
 # Optional:
 db.sqlite3
 # Public-safe DB snapshot commituj do snapshots/db_public.sqlite3.
+=1.0
