@@ -1,0 +1,10 @@
+Ahoj {{ user.username }},
+
+ďakujeme za registráciu na Pochop.sk.
+
+Pre aktiváciu účtu kliknite na tento odkaz:
+{{ verify_url }}
+
+Ak ste sa neregistrovali vy, tento e-mail môžete ignorovať.
+
+Pochop.sk

@@ -1,0 +1,681 @@
+{% extends "transits/base.html" %}
+{% load static %}
+
+{% block title %}Registrácia - Pochop{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ─── Loading Overlay (Solar System) ─── */
+.reg-loading-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #07070d;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.6s cubic-bezier(.4,0,.2,1);
+}
+.reg-loading-overlay.active {
+    opacity: 1;
+    pointer-events: all;
+}
+
+/* Solar system — large and immersive */
+.solar-system {
+    position: relative;
+    width: min(90vw, 480px);
+    height: min(90vw, 480px);
+    margin-bottom: 40px;
+    flex-shrink: 0;
+}
+
+/* Sun */
+.ss-sun {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 38% 38%, #fffbe6 0%, #fde68a 20%, #fbbf24 40%, #f59e0b 65%, #d97706 100%);
+    box-shadow:
+        0 0 30px 8px rgba(251,191,36,0.5),
+        0 0 70px 20px rgba(251,191,36,0.25),
+        0 0 120px 40px rgba(251,191,36,0.1);
+    animation: sunPulse 4s ease-in-out infinite;
+    z-index: 10;
+}
+@keyframes sunPulse {
+    0%, 100% { box-shadow: 0 0 30px 8px rgba(251,191,36,0.5), 0 0 70px 20px rgba(251,191,36,0.25), 0 0 120px 40px rgba(251,191,36,0.1); }
+    50% { box-shadow: 0 0 40px 12px rgba(251,191,36,0.6), 0 0 90px 25px rgba(251,191,36,0.3), 0 0 150px 50px rgba(251,191,36,0.15); }
+}
+
+/* Orbit rings */
+.ss-orbit {
+    position: absolute;
+    top: 50%; left: 50%;
+    border: 1px solid rgba(255,255,255,0.04);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+}
+
+/* Planet wrapper — orbits around center */
+.ss-planet-wrap {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 0; height: 0;
+    transform-origin: 0 0;
+    animation: orbitSpin var(--dur) linear infinite;
+}
+@keyframes orbitSpin {
+    from { transform: rotate(var(--sa)); }
+    to { transform: rotate(calc(var(--sa) + 360deg)); }
+}
+
+/* Planet sphere */
+.ss-planet {
+    position: absolute;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    animation: orbitCounter var(--dur) linear infinite;
+}
+@keyframes orbitCounter {
+    from { transform: translate(-50%, -50%) rotate(calc(-1 * var(--sa))); }
+    to { transform: translate(-50%, -50%) rotate(calc(-1 * var(--sa) - 360deg)); }
+}
+
+/* Ambient particles */
+.loading-particle {
+    position: absolute;
+    width: 2px; height: 2px;
+    background: rgba(255,255,255,0.3);
+    border-radius: 50%;
+    animation: particleDrift 8s ease-in-out infinite;
+}
+@keyframes particleDrift {
+    0%, 100% { opacity: 0; transform: translateY(0); }
+    20% { opacity: 0.5; }
+    80% { opacity: 0.3; }
+    100% { opacity: 0; transform: translateY(-40px); }
+}
+
+/* ─── Loading Text ─── */
+.loading-text-wrap {
+    text-align: center;
+    margin-bottom: 28px;
+}
+.loading-title {
+    font-size: clamp(1.3rem, 3.5vw, 1.7rem);
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    color: #e2e8f0;
+    margin-bottom: 6px;
+}
+.loading-subtitle {
+    font-size: 0.9rem;
+    color: rgba(255,255,255,0.5);
+    min-height: 1.4em;
+}
+.loading-subtitle .phase-text {
+    display: inline-block;
+    animation: phaseFade 0.4s ease-out;
+}
+@keyframes phaseFade {
+    0% { opacity: 0; transform: translateY(5px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Typing dots */
+.typing-dots::after {
+    content: '';
+    animation: typingDots 1.5s steps(4, end) infinite;
+}
+@keyframes typingDots {
+    0% { content: ''; }
+    25% { content: '.'; }
+    50% { content: '..'; }
+    75% { content: '...'; }
+}
+
+/* ─── Progress Bar ─── */
+.cosmic-progress {
+    width: min(360px, 85vw);
+    position: relative;
+}
+.cosmic-progress-track {
+    width: 100%;
+    height: 5px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.06);
+    overflow: hidden;
+}
+.cosmic-progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    width: 0%;
+    background: linear-gradient(90deg, #8b5cf6, #a78bfa 30%, #c4b5fd 50%, #818cf8 70%, #6366f1);
+    background-size: 200% 100%;
+    animation: progressShine 2s linear infinite;
+    transition: width 0.8s cubic-bezier(.4,0,.2,1);
+}
+@keyframes progressShine {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+.cosmic-progress-pct {
+    text-align: right;
+    margin-top: 6px;
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.4);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Form disappearing animation */
+.form-section.form-hiding {
+    animation: formVanish 0.5s cubic-bezier(.4,0,.2,1) forwards;
+}
+@keyframes formVanish {
+    0% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(0.95) translateY(20px); }
+}
+.hero.hero-hiding {
+    animation: formVanish 0.4s cubic-bezier(.4,0,.2,1) forwards;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Registration hero -->
+<section class="hero" id="regHero" style="padding: 40px 20px 24px;">
+    <div class="hero-bg"><div class="stars"></div><div class="stars2"></div></div>
+    <div class="hero-content">
+        <h1 class="hero-title" style="font-size: clamp(1.4rem,4vw,2.2rem);">Vytvorte si účet</h1>
+        <p class="hero-subtitle">Zadajte údaje o narodení pre výpočet tranzitov</p>
+    </div>
+</section>
+
+<section class="form-section" id="regFormSection">
+    <div class="form-card">
+        <h2 class="form-title">Registrácia</h2>
+
+        <div id="formErrors" style="display:none;" class="alert alert-error"></div>
+
+        {% if form.non_field_errors %}
+        <div class="alert alert-error">
+            {% for error in form.non_field_errors %}{{ error }}<br>{% endfor %}
+        </div>
+        {% endif %}
+
+        <form method="POST" id="registerForm">
+            {% csrf_token %}
+            <div class="form-grid">
+                <div class="form-group form-group-full">
+                    <label for="id_username">Používateľské meno</label>
+                    {{ form.username }}
+                    {% if form.username.errors %}<div class="field-error">{{ form.username.errors.0 }}</div>{% endif %}
+                </div>
+
+                <div class="form-group form-group-full">
+                    <label for="id_email">E-mail</label>
+                    {{ form.email }}
+                    {% if form.email.errors %}<div class="field-error">{{ form.email.errors.0 }}</div>{% endif %}
+                </div>
+
+                <div class="form-group">
+                    <label for="id_password1">Heslo</label>
+                    {{ form.password1 }}
+                    {% if form.password1.errors %}<div class="field-error">{{ form.password1.errors.0 }}</div>{% endif %}
+                </div>
+
+                <div class="form-group">
+                    <label for="id_password2">Potvrdenie hesla</label>
+                    {{ form.password2 }}
+                    {% if form.password2.errors %}<div class="field-error">{{ form.password2.errors.0 }}</div>{% endif %}
+                </div>
+
+                <div class="form-group">
+                    <label for="id_birth_date">Dátum narodenia</label>
+                    {{ form.birth_date }}
+                    {% if form.birth_date.errors %}<div class="field-error">{{ form.birth_date.errors.0 }}</div>{% endif %}
+                </div>
+
+                <div class="form-group">
+                    <label for="id_birth_time">Čas narodenia (24h)</label>
+                    {{ form.birth_time }}
+                    {% if form.birth_time.errors %}<div class="field-error">{{ form.birth_time.errors.0 }}</div>{% endif %}
+                </div>
+
+                <div class="form-group form-group-full">
+                    <label for="birthPlaceInput">Miesto narodenia</label>
+                    {{ form.birth_place }}
+                    <div id="cityResults" class="place-results"></div>
+                    {% if form.birth_place.errors %}<div class="field-error">{{ form.birth_place.errors.0 }}</div>{% endif %}
+                </div>
+
+                {{ form.birth_lat }}
+                {{ form.birth_lon }}
+            </div>
+
+            <button type="submit" class="btn-primary" id="submitBtn">
+                <span class="btn-icon">✦</span>
+                Zaregistrovať sa
+            </button>
+        </form>
+
+        <div class="auth-alt">
+            Už máte účet? <a href="{% url 'transits:login' %}">Prihláste sa</a>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ───── Searchable city dropdown ─────
+const cityInput = document.getElementById('birthPlaceInput');
+const cityResults = document.getElementById('cityResults');
+const latInput = document.getElementById('id_birth_lat');
+const lonInput = document.getElementById('id_birth_lon');
+let debounce;
+
+cityInput.addEventListener('input', function() {
+    clearTimeout(debounce);
+    const q = this.value.trim();
+    if (q.length < 2) { cityResults.style.display = 'none'; return; }
+
+    debounce = setTimeout(() => {
+        fetch(`{% url 'transits:api_cities' %}?q=${encodeURIComponent(q)}`)
+            .then(r => r.json())
+            .then(data => {
+                cityResults.innerHTML = '';
+                if (!data.results || data.results.length === 0) {
+                    cityResults.style.display = 'none';
+                    return;
+                }
+                data.results.forEach(c => {
+                    const div = document.createElement('div');
+                    div.className = 'place-result-item';
+                    div.innerHTML = `<strong>${c.name}</strong> <span style="color:var(--tx-3);font-size:.8rem;">okres ${c.district}</span>`;
+                    div.addEventListener('click', () => {
+                        cityInput.value = c.name;
+                        latInput.value = c.lat;
+                        lonInput.value = c.lon;
+                        cityResults.style.display = 'none';
+                    });
+                    cityResults.appendChild(div);
+                });
+                cityResults.style.display = 'block';
+            });
+    }, 250);
+});
+
+cityInput.addEventListener('focus', function() {
+    if (this.value.trim().length >= 2) this.dispatchEvent(new Event('input'));
+});
+
+document.addEventListener('click', function(e) {
+    if (!cityResults.contains(e.target) && e.target !== cityInput) {
+        cityResults.style.display = 'none';
+    }
+});
+
+// ───── Auto-format dátum DD.MM.RRRR ─────
+(function() {
+    const dateEl = document.getElementById('id_birth_date');
+    if (!dateEl) return;
+
+    function formatDate(raw) {
+        let d = raw.replace(/\D/g, '').slice(0, 8);
+        if (d.length >= 5) return d.slice(0,2) + '.' + d.slice(2,4) + '.' + d.slice(4);
+        if (d.length >= 3) return d.slice(0,2) + '.' + d.slice(2);
+        return d;
+    }
+
+    dateEl.addEventListener('beforeinput', function(e) {
+        if (!e.data) return;
+        if (e.inputType === 'insertText' && /\D/.test(e.data)) {
+            e.preventDefault();
+            return;
+        }
+    });
+
+    dateEl.addEventListener('input', function() {
+        const pos = this.selectionStart;
+        const oldLen = this.value.length;
+        const formatted = formatDate(this.value);
+        this.value = formatted;
+        const newLen = formatted.length;
+        const diff = newLen - oldLen;
+        const newPos = Math.min(pos + Math.max(diff, 0), newLen);
+        this.setSelectionRange(newPos, newPos);
+    });
+})();
+
+// ───── Auto-format čas HH:MM (24h) ─────
+(function() {
+    const timeEl = document.getElementById('id_birth_time');
+    if (!timeEl) return;
+
+    function formatTime(raw) {
+        let d = raw.replace(/\D/g, '').slice(0, 4);
+        if (d.length >= 3) return d.slice(0,2) + ':' + d.slice(2);
+        return d;
+    }
+
+    timeEl.addEventListener('beforeinput', function(e) {
+        if (!e.data) return;
+        if (e.inputType === 'insertText' && /\D/.test(e.data)) {
+            e.preventDefault();
+            return;
+        }
+    });
+
+    timeEl.addEventListener('input', function() {
+        const pos = this.selectionStart;
+        const oldLen = this.value.length;
+        const formatted = formatTime(this.value);
+        this.value = formatted;
+        const newLen = formatted.length;
+        const diff = newLen - oldLen;
+        const newPos = Math.min(pos + Math.max(diff, 0), newLen);
+        this.setSelectionRange(newPos, newPos);
+    });
+})();
+
+// ═══════════════════════════════════════════
+// Solar System Loading Animation
+// ═══════════════════════════════════════════
+
+// Planets with realistic colors and gradients
+const PLANETS = [
+    { symbol: '☿', name: 'Merkúr',  grad: ['#b0bec5','#78909c','#546e7a'], size: 18, orbit: 48,  dur: 5,   sa: 0 },
+    { symbol: '♀', name: 'Venuša',   grad: ['#ffe0b2','#ffcc80','#e6a14a'], size: 22, orbit: 68,  dur: 7,   sa: 72 },
+    { symbol: '♁', name: 'Zem',      grad: ['#81d4fa','#4fc3f7','#0288d1'], size: 22, orbit: 90,  dur: 9,   sa: 200 },
+    { symbol: '♂', name: 'Mars',     grad: ['#ef9a9a','#e57373','#c62828'], size: 20, orbit: 112, dur: 12,  sa: 144 },
+    { symbol: '♃', name: 'Jupiter',  grad: ['#ffe0b2','#d4a574','#a1887f'], size: 36, orbit: 140, dur: 16,  sa: 216 },
+    { symbol: '♄', name: 'Saturn',   grad: ['#fff9c4','#ffe082','#c9a84c'], size: 32, orbit: 168, dur: 20,  sa: 288 },
+    { symbol: '♅', name: 'Urán',     grad: ['#b2ebf2','#80deea','#4dd0e1'], size: 28, orbit: 194, dur: 26,  sa: 36 },
+    { symbol: '♆', name: 'Neptún',   grad: ['#9fa8da','#7986cb','#5c6bc0'], size: 28, orbit: 218, dur: 32,  sa: 160 },
+];
+
+function createOverlay() {
+    const overlay = document.createElement('div');
+    overlay.className = 'reg-loading-overlay';
+    overlay.id = 'loadingOverlay';
+
+    // Solar system
+    const ss = document.createElement('div');
+    ss.className = 'solar-system';
+
+    // Sun
+    const sun = document.createElement('div');
+    sun.className = 'ss-sun';
+    ss.appendChild(sun);
+
+    // Planets
+    PLANETS.forEach(p => {
+        // Orbit ring
+        const orbit = document.createElement('div');
+        orbit.className = 'ss-orbit';
+        const d = p.orbit * 2;
+        orbit.style.width = d + 'px';
+        orbit.style.height = d + 'px';
+        ss.appendChild(orbit);
+
+        // Wrapper (rotates)
+        const wrap = document.createElement('div');
+        wrap.className = 'ss-planet-wrap';
+        wrap.style.setProperty('--dur', p.dur + 's');
+        wrap.style.setProperty('--sa', p.sa + 'deg');
+
+        // Planet sphere with realistic gradient
+        const planet = document.createElement('div');
+        planet.className = 'ss-planet';
+        planet.style.width = p.size + 'px';
+        planet.style.height = p.size + 'px';
+        planet.style.left = p.orbit + 'px';
+        planet.style.top = '0px';
+        planet.style.background = `radial-gradient(circle at 35% 30%, ${p.grad[0]}, ${p.grad[1]} 50%, ${p.grad[2]} 100%)`;
+        planet.style.boxShadow = `inset -${p.size/4}px -${p.size/5}px ${p.size/3}px rgba(0,0,0,0.4), 0 0 ${p.size/2}px ${p.grad[1]}44`;
+        planet.style.setProperty('--dur', p.dur + 's');
+        planet.style.setProperty('--sa', p.sa + 'deg');
+
+        // Saturn ring
+        if (p.symbol === '♄') {
+            const ring = document.createElement('div');
+            ring.style.cssText = `position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotateX(65deg);width:${p.size*1.8}px;height:${p.size*1.8}px;border-radius:50%;border:2px solid rgba(255,224,130,0.3);pointer-events:none;`;
+            planet.appendChild(ring);
+        }
+
+        wrap.appendChild(planet);
+        ss.appendChild(wrap);
+    });
+
+    overlay.appendChild(ss);
+
+    // Ambient particles
+    for (let i = 0; i < 20; i++) {
+        const p = document.createElement('div');
+        p.className = 'loading-particle';
+        p.style.left = Math.random() * 100 + '%';
+        p.style.top = Math.random() * 100 + '%';
+        p.style.animationDelay = (Math.random() * 8) + 's';
+        p.style.animationDuration = (5 + Math.random() * 6) + 's';
+        overlay.appendChild(p);
+    }
+
+    // Text
+    const textWrap = document.createElement('div');
+    textWrap.className = 'loading-text-wrap';
+    textWrap.innerHTML = `
+        <div class="loading-title" id="loadingTitle">Analyzujem hviezdy<span class="typing-dots"></span></div>
+        <div class="loading-subtitle" id="loadingSubtitle"></div>
+    `;
+    overlay.appendChild(textWrap);
+
+    // Progress
+    const progress = document.createElement('div');
+    progress.className = 'cosmic-progress';
+    progress.innerHTML = `
+        <div class="cosmic-progress-track">
+            <div class="cosmic-progress-fill" id="progressFill"></div>
+        </div>
+        <div class="cosmic-progress-pct" id="progressPct">0 %</div>
+    `;
+    overlay.appendChild(progress);
+
+    // APPEND TO BODY (not main-content) to fix z-index stacking
+    document.body.appendChild(overlay);
+    return overlay;
+}
+
+// Build overlay immediately
+const overlayEl = createOverlay();
+
+// ───── Progress logic ─────
+const PHASES = [
+    { text: 'Načítavam pozície planét', pct: 8 },
+    { text: 'Mapujem natálny horoskop', pct: 18 },
+    { text: 'Počítam natálne aspekty', pct: 28 },
+    { text: 'Analyzujem znamenia', pct: 38 },
+    { text: 'Odosielam dáta Gemini AI', pct: 48 },
+    { text: 'Gemini analyzuje osobnosť', pct: 58 },
+    { text: 'Hlboká analýza aspektov', pct: 70 },
+    { text: 'Spracovávam výsledky', pct: 82 },
+    { text: 'Finalizujem analýzu', pct: 92 },
+];
+
+const TITLES = [
+    'Analyzujem hviezdy',
+    'Čítam z planét',
+    'Odhaľujem tvoj osud',
+    'Dokončujem analýzu',
+];
+
+let currentPhase = 0;
+let phaseInterval = null;
+let loadingDelayTimer = null;
+let loadingStarted = false;
+
+function setProgress(pct) {
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressPct').textContent = Math.round(pct) + ' %';
+}
+
+function advancePhase() {
+    if (currentPhase >= PHASES.length) return;
+    const phase = PHASES[currentPhase];
+    document.getElementById('loadingSubtitle').innerHTML =
+        `<span class="phase-text">✦ ${phase.text}</span>`;
+    setProgress(phase.pct);
+
+    if (currentPhase > 0 && currentPhase % 3 === 0) {
+        const idx = Math.floor(currentPhase / 3) % TITLES.length;
+        document.getElementById('loadingTitle').innerHTML =
+            TITLES[idx] + '<span class="typing-dots"></span>';
+    }
+    currentPhase++;
+}
+
+function startLoadingAnimation() {
+    if (loadingStarted) return;
+    loadingStarted = true;
+    currentPhase = 0;
+    setProgress(0);
+
+    // Hide hero/form only when loading actually starts
+    document.getElementById('regHero').classList.add('hero-hiding');
+    document.getElementById('regFormSection').classList.add('form-hiding');
+
+    // Hide navbar and footer
+    document.querySelector('.navbar').style.display = 'none';
+    document.querySelector('.footer').style.display = 'none';
+
+    overlayEl.classList.add('active');
+    advancePhase();
+    phaseInterval = setInterval(() => {
+        if (currentPhase < PHASES.length) advancePhase();
+    }, 3500);
+}
+
+function finishLoading(redirectUrl) {
+    if (loadingDelayTimer) {
+        clearTimeout(loadingDelayTimer);
+        loadingDelayTimer = null;
+    }
+    if (!loadingStarted) {
+        window.location.href = redirectUrl;
+        return;
+    }
+    clearInterval(phaseInterval);
+    setProgress(100);
+    document.getElementById('loadingSubtitle').innerHTML =
+        '<span class="phase-text">✦ Analýza dokončená!</span>';
+    document.getElementById('loadingTitle').innerHTML =
+        'Pripravené<span class="typing-dots"></span>';
+
+    setTimeout(() => { window.location.href = redirectUrl; }, 700);
+}
+
+function cancelLoading() {
+    if (loadingDelayTimer) {
+        clearTimeout(loadingDelayTimer);
+        loadingDelayTimer = null;
+    }
+    clearInterval(phaseInterval);
+    overlayEl.classList.remove('active');
+    document.querySelector('.navbar').style.display = '';
+    document.querySelector('.footer').style.display = '';
+    document.getElementById('regHero').classList.remove('hero-hiding');
+    document.getElementById('regFormSection').classList.remove('form-hiding');
+    loadingStarted = false;
+}
+
+// ───── AJAX Registration ─────
+function getCookie(name) {
+    let v = null;
+    document.cookie.split(';').forEach(c => {
+        c = c.trim();
+        if (c.startsWith(name + '=')) v = decodeURIComponent(c.substring(name.length + 1));
+    });
+    return v;
+}
+
+document.getElementById('registerForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    document.querySelectorAll('.field-error').forEach(el => el.remove());
+    const errBox = document.getElementById('formErrors');
+    errBox.style.display = 'none';
+
+    const formData = new FormData(this);
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span> Overujem...';
+
+    loadingDelayTimer = setTimeout(() => {
+        startLoadingAnimation();
+        loadingDelayTimer = null;
+    }, 350);
+
+    const reqCtrl = new AbortController();
+    const reqTimeout = setTimeout(() => reqCtrl.abort(), 120000);
+
+    try {
+        const resp = await fetch('{% url "transits:register" %}', {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRFToken': getCookie('csrftoken'),
+            },
+            signal: reqCtrl.signal,
+            body: formData,
+        });
+
+        const data = await resp.json().catch(() => ({}));
+
+        if (!resp.ok || (!data.success && !data.redirect)) {
+            cancelLoading();
+
+            btn.disabled = false;
+            btn.innerHTML = '<span class="btn-icon">✦</span> Zaregistrovať sa';
+
+            if (data.errors) {
+                for (const [field, msgs] of Object.entries(data.errors)) {
+                    if (field === '__all__') {
+                        errBox.innerHTML = msgs.join('<br>');
+                        errBox.style.display = 'block';
+                        continue;
+                    }
+                    const input = document.querySelector(`[name="${field}"]`);
+                    if (input) {
+                        const errDiv = document.createElement('div');
+                        errDiv.className = 'field-error';
+                        errDiv.textContent = msgs[0];
+                        input.parentNode.appendChild(errDiv);
+                    }
+                }
+            }
+            return;
+        }
+
+        finishLoading(data.redirect || '/natal/');
+
+    } catch (err) {
+        cancelLoading();
+
+        btn.disabled = false;
+        btn.innerHTML = '<span class="btn-icon">✦</span> Zaregistrovať sa';
+        errBox.textContent = err.name === 'AbortError'
+            ? 'Registrácia trvá príliš dlho. Skúste to prosím znova.'
+            : 'Chyba siete. Skúste to znova.';
+        errBox.style.display = 'block';
+    } finally {
+        clearTimeout(reqTimeout);
+    }
+});
+</script>
+{% endblock %}

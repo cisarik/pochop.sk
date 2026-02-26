@@ -1,0 +1,24 @@
+{% extends "transits/base.html" %}
+
+{% block title %}Overenie e-mailu - Pochop{% endblock %}
+
+{% block content %}
+<section class="hero" style="padding: 56px 20px 28px;">
+    <div class="hero-bg"><div class="stars"></div><div class="stars2"></div></div>
+    <div class="hero-content">
+        <div class="hero-shell" style="max-width: 760px; position: relative; overflow: hidden;">
+            <div style="position:absolute; inset:-25% -10%; background: radial-gradient(circle at 20% 40%, rgba(186,134,255,.18), transparent 50%), radial-gradient(circle at 80% 30%, rgba(122,90,255,.17), transparent 48%); pointer-events:none;"></div>
+            <p class="moment-kicker" style="position:relative; z-index:1;">Potvrdenie registrácie</p>
+            <h1 class="hero-title" style="font-size: clamp(1.35rem,4vw,2.1rem); margin-bottom: 12px; position:relative; z-index:1;">Skontrolujte svoju e-mailovú schránku</h1>
+            <p class="hero-subtitle" style="position:relative; z-index:1;">
+                Poslali sme vám potvrdzovací odkaz{% if masked_email %} na <strong>{{ masked_email }}</strong>{% endif %}.<br>
+                Po kliknutí na odkaz aktivujete účet a môžete sa prihlásiť.
+            </p>
+            <div class="hero-actions" style="margin-top:22px; position:relative; z-index:1;">
+                <a href="{% url 'transits:login' %}" class="btn-outline btn-hero" style="max-width:280px;width:100%;">Prejsť na prihlásenie</a>
+                <a href="{% url 'transits:verify_email_resend' %}" class="btn-primary btn-hero" style="max-width:280px;width:100%;text-decoration:none;">Poslať e-mail znova</a>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

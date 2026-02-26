@@ -1,0 +1,107 @@
+{% extends "transits/base.html" %}
+{% load static %}
+
+{% block title %}Astrologický rozbor okamihu - Pochop{% endblock %}
+
+{% block content %}
+<section class="moment-wrap">
+    <div class="moment-head">
+        <p class="moment-kicker">Verejný denný prehľad</p>
+        <h1>Astrologický rozbor okamihu</h1>
+        <p class="moment-date">{{ report_date|date:"j. n. Y" }}</p>
+        <p class="moment-date">Lokalita: Bratislava (48.1486, 17.1077)</p>
+    </div>
+
+    <div class="moment-layout">
+        <article class="moment-card moment-card--chart">
+            <div class="moment-card-top">
+                <h2>Aktuálne planetárne usporiadanie</h2>
+            </div>
+            <div class="moment-wheel-wrap">
+                <svg id="momentWheel" class="moment-wheel-svg" viewBox="0 0 620 620" role="img" aria-label="Planetárne usporiadanie"></svg>
+                <div id="momentWheelTip" class="wheel-tip" aria-hidden="true"></div>
+            </div>
+        </article>
+
+        <article class="moment-card moment-card--report">
+            <div class="moment-report-head">
+                <h2>AI hodnotenie okamihu</h2>
+                <span id="momentScore" class="moment-score">- /10</span>
+            </div>
+            <p id="momentEnergy" class="moment-energy"></p>
+
+            <section class="moment-list-block">
+                <h3>Hlavné témy</h3>
+                <ul id="momentThemes"></ul>
+            </section>
+            <section class="moment-list-block">
+                <h3>Na čo je vhodný čas</h3>
+                <ul id="momentFocus"></ul>
+            </section>
+            <section class="moment-list-block">
+                <h3>Pozor na</h3>
+                <ul id="momentAvoid"></ul>
+            </section>
+        </article>
+    </div>
+
+    <article class="moment-card moment-card--aspects">
+        <div class="moment-card-top">
+            <h2>Kľúčové aspekty dňa</h2>
+            <p class="moment-updated">Aktualizované: {{ moment_generated_at|date:"j. n. Y H:i" }}</p>
+        </div>
+        <div id="momentAspects" class="moment-aspects-grid"></div>
+    </article>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/moment-wheel.js' %}"></script>
+<script>
+(() => {
+    const planets = JSON.parse('{{ moment_planets_json|escapejs }}');
+    const aspects = JSON.parse('{{ moment_aspects_json|escapejs }}');
+    const ai = JSON.parse('{{ moment_ai_json|escapejs }}');
+    window.PochopMomentWheel.render({
+        svgId: 'momentWheel',
+        tipId: 'momentWheelTip',
+        planets,
+        aspects,
+        maxAspects: 44,
+    });
+
+    const score = document.getElementById('momentScore');
+    const energy = document.getElementById('momentEnergy');
+    score.textContent = `${ai.rating || 6}/10`;
+    energy.textContent = ai.energy || '';
+
+    function fillList(id, items) {
+        const root = document.getElementById(id);
+        root.innerHTML = '';
+        (items || []).forEach((it) => {
+            const li = document.createElement('li');
+            li.textContent = it;
+            root.appendChild(li);
+        });
+    }
+    fillList('momentThemes', ai.themes);
+    fillList('momentFocus', ai.focus);
+    fillList('momentAvoid', ai.avoid);
+
+    const aspectsRoot = document.getElementById('momentAspects');
+    aspectsRoot.innerHTML = '';
+    aspects.slice(0, 12).forEach((a) => {
+        const card = document.createElement('article');
+        card.className = `moment-aspect moment-aspect--${a.effect}`;
+        card.innerHTML = `
+            <div class="moment-aspect-top">
+                <div class="moment-aspect-symbols">${a.planet1_symbol} ${a.aspect_symbol} ${a.planet2_symbol}</div>
+                <span class="moment-aspect-orb">orb ${a.orb}&deg;</span>
+            </div>
+            <h4>${a.aspect_name_sk} ${a.planet1_name_sk} - ${a.planet2_name_sk}</h4>
+        `;
+        aspectsRoot.appendChild(card);
+    });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends "transits/base.html" %}
+
+{% block title %}Znovu poslať overenie - Pochop{% endblock %}
+
+{% block content %}
+<section class="hero" style="padding: 40px 20px 24px;">
+    <div class="hero-bg"><div class="stars"></div><div class="stars2"></div></div>
+    <div class="hero-content">
+        <h1 class="hero-title" style="font-size: clamp(1.4rem,4vw,2.2rem);">Poslať verifikačný e-mail znovu</h1>
+        <p class="hero-subtitle">Zadajte registračný e-mail a pošleme nový potvrdzovací odkaz.</p>
+    </div>
+</section>
+
+<section class="form-section">
+    <div class="form-card">
+        <h2 class="form-title">Overenie e-mailu</h2>
+
+        {% if sent %}
+        <div style="background: rgba(16,185,129,.08); border: 1px solid rgba(16,185,129,.3); border-radius: var(--r-sm); padding: 10px 14px; color: #34d399; font-size: .88rem; margin-bottom: 16px;">
+            Ak účet s týmto e-mailom existuje a nie je ešte aktivovaný, odoslali sme nový overovací e-mail.
+        </div>
+        {% endif %}
+
+        {% if form.non_field_errors %}
+        <div class="alert alert-error">
+            {% for error in form.non_field_errors %}{{ error }}<br>{% endfor %}
+        </div>
+        {% endif %}
+
+        <form method="POST">
+            {% csrf_token %}
+            <div class="form-grid" style="grid-template-columns: 1fr;">
+                <div class="form-group">
+                    <label for="id_email">E-mail</label>
+                    {{ form.email }}
+                    {% if form.email.errors %}<div class="field-error">{{ form.email.errors.0 }}</div>{% endif %}
+                </div>
+            </div>
+
+            <button type="submit" class="btn-primary">
+                <span class="btn-icon">✉</span>
+                Poslať overenie
+            </button>
+        </form>
+
+        <div class="auth-alt">
+            Už máte potvrdený e-mail? <a href="{% url 'transits:login' %}">Prihlásiť sa</a>
+        </div>
+    </div>
+</section>
+{% endblock %}

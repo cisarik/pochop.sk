@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Pochop moment report generator daily
+
+[Timer]
+OnCalendar=*-*-* 00:00:00
+Persistent=true
+Unit=pochop-moment.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,37 @@
+# Secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+venv/
+.venv/
+
+# Django artifacts
+staticfiles/
+*.log
+*.pid
+*.sock
+
+# SQLite runtime sidecar files
+*.sqlite3-shm
+*.sqlite3-wal
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Optional:
+db.sqlite3
+# Public-safe DB snapshot commituj do snapshots/db_public.sqlite3.

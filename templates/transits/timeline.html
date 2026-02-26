@@ -1,0 +1,624 @@
+{% extends "transits/base.html" %}
+{% load static %}
+
+{% block title %}Pochop - {{ profile.name }}{% endblock %}
+
+{% block content %}
+<!-- Header -->
+<section class="tl-header">
+    <div class="tl-header-inner">
+        <!-- <a href="{% url 'transits:index' %}" class="back-link">&larr; Späť</a> -->
+        <div class="tl-header-row">
+            <div class="tl-profile">
+                <div class="tl-avatar">{{ profile.name|first }}</div>
+                <div>
+                    <h1 class="tl-name">{{ profile.name }}</h1>
+                    <span class="tl-meta">{{ profile_birth_date }} {{ profile_birth_time }} &middot; {{ profile_birth_place }}</span>
+                </div>
+            </div>
+            <div class="tl-day-select-wrap">
+                <label for="daySelect" class="tl-day-label">Deň:</label>
+                <select id="daySelect" class="tl-day-select"></select>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Gantt timeline - dni su sucastou hlavicky -->
+<section class="gantt-section">
+    <div class="gantt-wrapper" id="ganttWrapper">
+        <!-- Day header (jediny rad dni - klikatelny) -->
+        <div class="gantt-header" id="ganttHeader">
+            <div class="gantt-label-col gantt-label-header"></div>
+            <div class="gantt-days-header" id="ganttDaysHeader"></div>
+        </div>
+
+        <!-- Packed transit bars -->
+        <div class="gantt-canvas-wrap" id="ganttCanvasWrap">
+            <div class="gantt-label-stack" id="ganttLabelStack"></div>
+            <div class="gantt-canvas" id="ganttCanvas">
+                <!-- Today line - len v oblasti barov -->
+                <div class="gantt-today-line" id="ganttTodayLine"></div>
+                <!-- Grid lines -->
+                <div class="gantt-grid" id="ganttGrid"></div>
+                <!-- Bars rendered by JS -->
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- AI hodnotenie dňa - hneď pod timeline -->
+<section class="ai-section-wrap">
+    <div class="ai-panel" id="aiPanel">
+        <div class="ai-panel-border"></div>
+        <div class="ai-panel-inner">
+            <div class="ai-panel-header">
+                <span class="ai-icon">&#10024;</span>
+                <h3 class="ai-panel-title">AI Hodnotenie dňa</h3>
+                <span class="ai-badge">Gemini</span>
+            </div>
+
+            <!-- Loading stav -->
+            <div class="ai-loading" id="aiLoading">
+                <div class="ai-shimmer-line ai-shimmer-short"></div>
+                <div class="ai-shimmer-line"></div>
+                <div class="ai-shimmer-line"></div>
+                <div class="ai-shimmer-line ai-shimmer-med"></div>
+            </div>
+
+            <!-- Výsledok -->
+            <div class="ai-result" id="aiResult" style="display:none">
+                <div class="ai-rating-row" id="aiRatingRow">
+                    <span class="ai-rating-label">Hodnotenie dňa</span>
+                    <div class="ai-stars" id="aiStars"></div>
+                    <span class="ai-rating-num" id="aiRatingNum"></span>
+                </div>
+
+                <div class="ai-section ai-section-energy" id="aiEnergy">
+                    <div class="ai-section-icon">&#9889;</div>
+                    <div class="ai-section-content">
+                        <h4>Energia dňa</h4>
+                        <p id="aiEnergyText"></p>
+                    </div>
+                </div>
+
+                <div class="ai-section ai-section-focus" id="aiFocus">
+                    <div class="ai-section-icon">&#127919;</div>
+                    <div class="ai-section-content">
+                        <h4>Na čo sa sústrediť</h4>
+                        <ul id="aiFocusList"></ul>
+                    </div>
+                </div>
+
+                <div class="ai-section ai-section-avoid" id="aiAvoid">
+                    <div class="ai-section-icon">&#9888;&#65039;</div>
+                    <div class="ai-section-content">
+                        <h4>Čomu sa vyhnúť</h4>
+                        <ul id="aiAvoidList"></ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Error stav -->
+            <div class="ai-error" id="aiError" style="display:none">
+                <p id="aiErrorText"></p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Day detail panel -->
+<section class="day-detail" id="dayDetail">
+    <h2 class="day-detail-title" id="dayDetailTitle"></h2>
+    <div class="day-detail-list" id="dayDetailList"></div>
+</section>
+
+<!-- Transit detail modal -->
+<div class="modal-overlay" id="modalOverlay">
+    <div class="modal" id="transitModal">
+        <button class="modal-close" id="modalClose">&times;</button>
+        <div class="modal-header" id="modalHeader">
+            <div class="modal-symbols" id="modalSymbols"></div>
+            <h2 class="modal-title" id="modalTitle"></h2>
+            <div class="modal-dates" id="modalDates"></div>
+            <div class="modal-orb" id="modalOrb"></div>
+        </div>
+        <div class="modal-gradient-bar" id="modalGradientBar">
+            <div class="gradient-marker" id="gradientMarker"></div>
+            <div class="gradient-labels">
+                <span id="gradStart"></span>
+                <span id="gradEnd"></span>
+            </div>
+        </div>
+        <div class="modal-body">
+            <p class="modal-text" id="modalText"></p>
+        </div>
+        <div class="modal-footer">
+            <div class="modal-effect" id="modalEffect"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function getCookie(name) {
+    let v = null; document.cookie.split(';').forEach(c => {
+        c = c.trim(); if (c.startsWith(name + '=')) v = decodeURIComponent(c.substring(name.length + 1));
+    }); return v;
+}
+const CSRF = getCookie('csrftoken');
+const DATA = {{ transits|safe }};
+const DAYS = 30;
+const START = new Date();
+START.setHours(0,0,0,0);
+
+const COLORS = { positive:'#10b981', negative:'#ef4444', neutral:'#8b5cf6' };
+const SK_DAYS = ['Ne','Po','Ut','St','Št','Pi','So'];
+const SK_MONTHS = ['jan','feb','mar','apr','máj','jún','júl','aug','sep','okt','nov','dec'];
+
+function dayLabelFull(d) {
+    return `${SK_DAYS[d.getDay()]} ${d.getDate()}. ${SK_MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+const DAY_W = 150;
+const BAR_H = 52;
+const BAR_GAP = 6;
+const LABEL_W = 140;
+const TIMELINE_W = DAYS * DAY_W;
+
+// ───── Dropdown ─────
+const daySelect = document.getElementById('daySelect');
+for (let i = 0; i < DAYS; i++) {
+    const d = new Date(START); d.setDate(d.getDate() + i);
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = dayLabelFull(d);
+    daySelect.appendChild(opt);
+}
+daySelect.addEventListener('change', () => selectDay(+daySelect.value));
+
+// ───── Day header (jediny) ─────
+const ganttDaysHeader = document.getElementById('ganttDaysHeader');
+const ganttHeader = document.getElementById('ganttHeader');
+const ganttCanvasWrap = document.getElementById('ganttCanvasWrap');
+ganttDaysHeader.style.width = TIMELINE_W + 'px';
+ganttDaysHeader.style.minWidth = TIMELINE_W + 'px';
+ganttHeader.style.width = TIMELINE_W + 'px';
+ganttHeader.style.minWidth = TIMELINE_W + 'px';
+ganttCanvasWrap.style.width = TIMELINE_W + 'px';
+ganttCanvasWrap.style.minWidth = TIMELINE_W + 'px';
+const dayCells = [];
+for (let i = 0; i < DAYS; i++) {
+    const d = new Date(START); d.setDate(d.getDate() + i);
+    const cell = document.createElement('button');
+    cell.className = 'gantt-day-cell' + (i === 0 ? ' gantt-day-cell--today' : '');
+    cell.style.flex = `0 0 ${DAY_W}px`;
+    cell.style.width = DAY_W + 'px';
+    cell.style.minWidth = DAY_W + 'px';
+    cell.innerHTML = `<span class="gdc-num">${d.getDate()}</span><span class="gdc-name">${SK_DAYS[d.getDay()]}</span>`;
+    cell.addEventListener('click', () => selectDay(i));
+    ganttDaysHeader.appendChild(cell);
+    dayCells.push(cell);
+}
+
+// ───── Helpers ─────
+function dateToX(dateStr) {
+    const d = new Date(dateStr);
+    return ((d - START) / 86400000) * DAY_W;
+}
+
+// ───── Packed layout algorithm ─────
+// Filtrujeme len tranzity ktore este neskonciili a zacinaju v ramci 30 dni
+const END_LIMIT = new Date(START);
+END_LIMIT.setDate(END_LIMIT.getDate() + DAYS);
+const visible = DATA.filter(t => {
+    const te = new Date(t.end_date_iso);
+    const ts = new Date(t.start_date_iso);
+    return te > START && ts < END_LIMIT;
+});
+
+// Zoradime: dlhsie (pomalsie planety) hore, potom podla zaciatku
+const PLANET_PRI = {pluto:0,neptune:1,uranus:2,saturn:3,jupiter:4,mars:5,venus:6,mercury:7,sun:8,moon:9};
+const sorted = [...visible].sort((a,b) => {
+    // Najprv podla trvania (dlhsie hore)
+    const durA = new Date(a.end_date_iso) - new Date(a.start_date_iso);
+    const durB = new Date(b.end_date_iso) - new Date(b.start_date_iso);
+    if (durB !== durA) return durB - durA;
+    return new Date(a.start_date_iso) - new Date(b.start_date_iso);
+});
+
+// Lane packing - pouzivame VIDITELNY rozsah pre overlap detection
+const lanes = [];
+const barLanes = [];
+
+sorted.forEach(t => {
+    // Orezeme na viditelny rozsah pre lane detection
+    const x1 = Math.max(dateToX(t.start_date_iso), 0);
+    const x2 = Math.min(dateToX(t.end_date_iso), TIMELINE_W);
+    if (x2 <= x1) { barLanes.push(0); return; }
+
+    let placed = false;
+    for (let li = 0; li < lanes.length; li++) {
+        const fits = lanes[li].every(seg => x2 <= seg.start - 2 || x1 >= seg.end + 2);
+        if (fits) {
+            lanes[li].push({start: x1, end: x2});
+            barLanes.push(li);
+            placed = true;
+            break;
+        }
+    }
+    if (!placed) {
+        lanes.push([{start: x1, end: x2}]);
+        barLanes.push(lanes.length - 1);
+    }
+});
+
+const totalH = lanes.length * (BAR_H + BAR_GAP) + BAR_GAP;
+
+// ───── Render canvas ─────
+const canvas = document.getElementById('ganttCanvas');
+const labelStack = document.getElementById('ganttLabelStack');
+const grid = document.getElementById('ganttGrid');
+
+canvas.style.width = TIMELINE_W + 'px';
+canvas.style.height = totalH + 'px';
+labelStack.style.height = totalH + 'px';
+
+// Grid lines
+for (let i = 0; i <= DAYS; i++) {
+    const line = document.createElement('div');
+    line.className = 'gantt-grid-line';
+    line.style.left = (i * DAY_W) + 'px';
+    grid.appendChild(line);
+}
+
+// Bars
+sorted.forEach((t, idx) => {
+    const lane = barLanes[idx];
+    const color = COLORS[t.effect] || COLORS.neutral;
+    const x1 = dateToX(t.start_date_iso);
+    const x2 = dateToX(t.end_date_iso);
+    const bW = Math.max(x2 - x1, 6);
+    const bL = Math.max(x1, 0);
+    const bT = BAR_GAP + lane * (BAR_H + BAR_GAP);
+
+    // Gradient peak
+    let peak = 50;
+    if (t.exact_date_iso) {
+        const xE = dateToX(t.exact_date_iso);
+        peak = Math.max(5, Math.min(95, ((xE - x1)/(x2 - x1))*100));
+    }
+
+    const bar = document.createElement('div');
+    bar.className = 'gantt-bar';
+    bar.style.cssText = `
+        left:${bL}px; top:${bT}px; width:${bW}px; height:${BAR_H}px;
+        background:linear-gradient(to right,
+            rgba(255,255,255,0.05) 0%,
+            ${color}55 ${Math.max(0,peak-30)}%,
+            ${color} ${peak}%,
+            ${color}55 ${Math.min(100,peak+30)}%,
+            rgba(255,255,255,0.05) 100%);
+        border-color:${color}30;
+    `;
+    bar.title = `${t.title}\n${t.start_date} — ${t.end_date}`;
+
+    // Label s planetami a aspektom NAMIESTO bodky
+    // Umiestni na pozíciu presného aspektu (alebo stred)
+    const labelX = t.exact_date_iso ? dateToX(t.exact_date_iso) - bL : bW / 2;
+    const lbl = document.createElement('span');
+    lbl.className = 'gantt-bar-label';
+    const transitSym = document.createElement('span');
+    transitSym.className = 'gantt-bar-glyph';
+    transitSym.textContent = t.transit_symbol;
+    const aspectSym = document.createElement('span');
+    aspectSym.className = 'gantt-bar-aspect';
+    aspectSym.textContent = t.aspect_symbol;
+    const natalSym = document.createElement('span');
+    natalSym.className = 'gantt-bar-glyph';
+    natalSym.textContent = t.natal_symbol;
+    lbl.append(transitSym, aspectSym, natalSym);
+    lbl.style.left = Math.max(4, Math.min(labelX, bW - 4)) + 'px';
+    bar.appendChild(lbl);
+
+    bar.addEventListener('click', (e) => { e.stopPropagation(); openModal(t); });
+    canvas.appendChild(bar);
+});
+
+// ───── Vertikálna čiara vybraného dňa ─────
+const todayLine = document.getElementById('ganttTodayLine');
+
+function moveLineTo(dayIdx) {
+    // Stred vybraného dňa
+    const x = (dayIdx + 0.5) * DAY_W;
+    todayLine.style.left = x + 'px';
+    todayLine.style.transition = 'left 0.3s ease';
+}
+// Inicializácia na dnešok
+moveLineTo(0);
+
+// ───── Day selection ─────
+let selectedDay = 0;
+
+function selectDay(dayIdx) {
+    selectedDay = dayIdx;
+    dayCells.forEach((c,i) => c.classList.toggle('gantt-day-cell--active', i === dayIdx));
+    daySelect.value = dayIdx;
+
+    // Posun fialovú čiaru na vybraný deň
+    moveLineTo(dayIdx);
+
+    // Update detail panel
+    updateDayDetail(dayIdx);
+
+    // AI hodnotenie
+    fetchAiReport(dayIdx);
+}
+
+// ───── AI Gemini hodnotenie ─────
+const PROFILE_ID = {{ profile.pk }};
+let aiAbortCtrl = null;
+
+async function fetchAiReport(dayIdx) {
+    const panel = document.getElementById('aiPanel');
+    const loading = document.getElementById('aiLoading');
+    const result = document.getElementById('aiResult');
+    const error = document.getElementById('aiError');
+
+    // Reset
+    panel.classList.remove('ai-panel--loaded', 'ai-panel--error');
+    loading.style.display = '';
+    result.style.display = 'none';
+    error.style.display = 'none';
+
+    // Abort predchadzajuci request
+    if (aiAbortCtrl) aiAbortCtrl.abort();
+    aiAbortCtrl = new AbortController();
+
+    try {
+        const resp = await fetch('{% url "transits:ai_day_report" %}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+            body: JSON.stringify({ profile_id: PROFILE_ID, day_offset: dayIdx }),
+            signal: aiAbortCtrl.signal,
+        });
+
+        const data = await resp.json();
+
+        if (data.error) {
+            showAiError(data.error);
+            return;
+        }
+
+        // Zobraz vysledok s animaciou
+        loading.style.display = 'none';
+        result.style.display = '';
+        panel.classList.add('ai-panel--loaded');
+
+        // Hviezdy - postupne
+        renderStars(data.rating || 5);
+
+        // Typing efekt pre sekcie
+        await sleep(200);
+        await typeText('aiEnergyText', data.energy || '', 'aiEnergy');
+
+        await sleep(150);
+        await typeList('aiFocusList', data.focus || [], 'aiFocus');
+
+        await sleep(150);
+        await typeList('aiAvoidList', data.avoid || [], 'aiAvoid');
+
+    } catch (e) {
+        if (e.name === 'AbortError') return;
+        showAiError('Nepodarilo sa získať AI hodnotenie.');
+    }
+}
+
+function showAiError(msg) {
+    document.getElementById('aiLoading').style.display = 'none';
+    document.getElementById('aiResult').style.display = 'none';
+    const err = document.getElementById('aiError');
+    err.style.display = '';
+    document.getElementById('aiErrorText').textContent = msg;
+    document.getElementById('aiPanel').classList.add('ai-panel--error');
+}
+
+function renderStars(rating) {
+    const container = document.getElementById('aiStars');
+    container.innerHTML = '';
+    document.getElementById('aiRatingNum').textContent = rating + '/10';
+
+    for (let i = 1; i <= 10; i++) {
+        const star = document.createElement('span');
+        star.className = 'ai-star' + (i <= rating ? ' ai-star--filled' : '');
+        star.textContent = i <= rating ? '\u2605' : '\u2606';
+        star.style.animationDelay = (i * 60) + 'ms';
+        container.appendChild(star);
+    }
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function typeText(elId, text, sectionId, speed = 12) {
+    const el = document.getElementById(elId);
+    const section = document.getElementById(sectionId);
+    el.textContent = '';
+    section.classList.add('ai-section--visible');
+
+    for (let i = 0; i < text.length; i++) {
+        el.textContent += text[i];
+        if (i % 3 === 0) await sleep(speed);
+    }
+}
+
+async function typeList(ulId, items, sectionId) {
+    const ul = document.getElementById(ulId);
+    const section = document.getElementById(sectionId);
+    ul.innerHTML = '';
+    section.classList.add('ai-section--visible');
+
+    for (const item of items) {
+        const li = document.createElement('li');
+        ul.appendChild(li);
+        for (let i = 0; i < item.length; i++) {
+            li.textContent += item[i];
+            if (i % 3 === 0) await sleep(10);
+        }
+        await sleep(80);
+    }
+}
+
+function updateDayDetail(dayIdx) {
+    const d = new Date(START.getTime());
+    d.setDate(d.getDate() + dayIdx);
+    d.setHours(12,0,0,0); // stred dňa = fialová čiara
+
+    const titleEl = document.getElementById('dayDetailTitle');
+    titleEl.textContent = dayLabelFull(d) + (dayIdx === 0 ? ' (dnes)' : '');
+
+    // Flash effect
+    const detailSection = document.getElementById('dayDetail');
+    detailSection.style.opacity = '0.5';
+    setTimeout(() => { detailSection.style.opacity = '1'; }, 80);
+
+    // Len tranzity aktívne v poludnie (pretínajú fialovú čiaru)
+    const midTime = d.getTime();
+    const active = DATA.filter(t => {
+        const ts = new Date(t.start_date_iso).getTime();
+        const te = new Date(t.end_date_iso).getTime();
+        return ts <= midTime && te >= midTime;
+    });
+
+    const list = document.getElementById('dayDetailList');
+    list.innerHTML = '';
+
+    if (active.length === 0) {
+        list.innerHTML = '<div class="dd-empty">Žiadne aktívne tranzity v tento deň</div>';
+        return;
+    }
+
+    active.sort((a,b) => {
+        const mid = new Date(d.getTime() + 12*3600000);
+        const ae = a.exact_date_iso ? new Date(a.exact_date_iso) : new Date((new Date(a.start_date_iso).getTime()+new Date(a.end_date_iso).getTime())/2);
+        const be = b.exact_date_iso ? new Date(b.exact_date_iso) : new Date((new Date(b.start_date_iso).getTime()+new Date(b.end_date_iso).getTime())/2);
+        return Math.abs(mid-ae) - Math.abs(mid-be);
+    });
+
+    active.forEach(t => {
+        const color = COLORS[t.effect] || COLORS.neutral;
+        const mid = new Date(d.getTime() + 12*3600000);
+        const exact = t.exact_date_iso ? new Date(t.exact_date_iso) :
+            new Date((new Date(t.start_date_iso).getTime()+new Date(t.end_date_iso).getTime())/2);
+        const span = new Date(t.end_date_iso) - new Date(t.start_date_iso);
+        const dist = Math.abs(mid - exact);
+        const half = span / 2;
+        const pct = half > 0 ? Math.max(0, Math.round((1 - dist/half)*100)) : 100;
+
+        const card = document.createElement('div');
+        card.className = 'dd-card';
+        card.style.borderLeftColor = color;
+        card.innerHTML = `
+            <div class="dd-card-top">
+                <div class="dd-symbols">
+                    <span style="color:${color}">${t.transit_symbol}</span>
+                    <span class="dd-aspect">${t.aspect_symbol}</span>
+                    <span style="color:${color}">${t.natal_symbol}</span>
+                </div>
+                <span class="dd-badge dd-badge--${t.effect}">
+                    ${t.effect==='positive'?'pozitívny':t.effect==='negative'?'negatívny':'neutrálny'}
+                </span>
+            </div>
+            <h3 class="dd-title">${t.title}</h3>
+            <div class="dd-intensity-row">
+                <div class="dd-intensity-bar">
+                    <div class="dd-intensity-fill" style="width:${pct}%;background:linear-gradient(90deg,transparent,${color},transparent);"></div>
+                </div>
+                <span class="dd-intensity-val">${pct}%</span>
+            </div>
+            <p class="dd-text">${t.text}</p>
+            <div class="dd-dates">${t.start_date} — ${t.end_date}${t.exact_date ? ` · presný: ${t.exact_date}` : ''}</div>
+        `;
+        card.addEventListener('click', () => openModal(t));
+        list.appendChild(card);
+    });
+}
+
+selectDay(0);
+
+// ───── Modal ─────
+const modalOverlay = document.getElementById('modalOverlay');
+function openModal(t) {
+    const color = COLORS[t.effect] || COLORS.neutral;
+    const lbl = t.effect==='positive'?'Pozitívny vplyv':t.effect==='negative'?'Negatívny vplyv':'Neutrálny vplyv';
+
+    document.getElementById('modalSymbols').innerHTML = `
+        <span class="modal-symbol" style="color:${color}">${t.transit_symbol}</span>
+        <span class="modal-aspect-symbol">${t.aspect_symbol}</span>
+        <span class="modal-symbol" style="color:${color}">${t.natal_symbol}</span>`;
+    document.getElementById('modalTitle').textContent = t.title;
+    document.getElementById('modalDates').innerHTML =
+        `Aktívny: ${t.start_date} — ${t.end_date}` + (t.exact_date ? `<br>Presný aspekt: ${t.exact_date}` : '');
+    document.getElementById('modalOrb').innerHTML =
+        `orbis: ${t.orb}°, pôsobenie: <span style="color:${color};font-weight:600">${lbl.toLowerCase()}</span>`;
+
+    const bar = document.getElementById('modalGradientBar');
+    bar.style.background = `linear-gradient(to right, rgba(255,255,255,0.08), ${color}, rgba(255,255,255,0.08))`;
+    const now = new Date(), s = new Date(t.start_date_iso), e = new Date(t.end_date_iso);
+    let pct = ((now-s)/(e-s))*100;
+    document.getElementById('gradientMarker').style.left = Math.max(2,Math.min(98,pct)) + '%';
+    document.getElementById('gradStart').textContent = t.start_date.split(' ')[0];
+    document.getElementById('gradEnd').textContent = t.end_date.split(' ')[0];
+    document.getElementById('modalHeader').className = 'modal-header modal-header--' + t.effect;
+    document.getElementById('modalText').textContent = t.text;
+    document.getElementById('modalEffect').innerHTML = `<span class="effect-dot" style="background:${color}"></span> ${lbl}`;
+
+    modalOverlay.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+function closeModal() { modalOverlay.classList.remove('active'); document.body.style.overflow = ''; }
+document.getElementById('modalClose').addEventListener('click', closeModal);
+modalOverlay.addEventListener('click', e => { if (e.target === modalOverlay) closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// ───── Drag scroll & mouse wheel horizontálne ─────
+(function() {
+    const el = document.getElementById('ganttWrapper');
+    let isDragging = false;
+    let startX = 0;
+    let scrollStart = 0;
+
+    el.addEventListener('mousedown', e => {
+        // Ignoruj ak klikol na button (day cell) alebo bar
+        if (e.target.closest('.gantt-day-cell') || e.target.closest('.gantt-bar')) return;
+        isDragging = true;
+        startX = e.clientX;
+        scrollStart = el.scrollLeft;
+        el.style.cursor = 'grabbing';
+        el.style.userSelect = 'none';
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', e => {
+        if (!isDragging) return;
+        const dx = e.clientX - startX;
+        el.scrollLeft = scrollStart - dx;
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (!isDragging) return;
+        isDragging = false;
+        el.style.cursor = '';
+        el.style.userSelect = '';
+    });
+
+    // Mouse wheel → horizontálny scroll
+    el.addEventListener('wheel', e => {
+        if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+            e.preventDefault();
+            el.scrollLeft += e.deltaY;
+        }
+    }, { passive: false });
+})();
+</script>
+{% endblock %}

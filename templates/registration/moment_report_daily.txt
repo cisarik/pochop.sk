@@ -1,0 +1,32 @@
+Pochop.sk — Astrologický rozbor okamihu
+Dátum: {{ report.report_date|date:"j. n. Y" }}
+Lokalita: {{ location_name }} ({{ location_lat }}, {{ location_lon }})
+Časové pásmo: {{ location_tz }}
+Model: {{ active_ai_model_badge }}
+
+Hodnotenie: {{ ai.rating|default:6 }}/10
+
+Energia dňa:
+{{ ai.energy|default:"Bez textu." }}
+
+Hlavné témy:
+{% for item in ai.themes %}- {{ item }}
+{% empty %}- Bez položiek.
+{% endfor %}
+
+Na čo sa sústrediť:
+{% for item in ai.focus %}- {{ item }}
+{% empty %}- Bez položiek.
+{% endfor %}
+
+Čomu sa vyhnúť:
+{% for item in ai.avoid %}- {{ item }}
+{% empty %}- Bez položiek.
+{% endfor %}
+
+Kľúčové aspekty:
+{% for a in aspects %}- {{ a.planet1_symbol }} {{ a.aspect_symbol }} {{ a.planet2_symbol }} | {{ a.aspect_name_sk }} {{ a.planet1_name_sk }} - {{ a.planet2_name_sk }} (orb {{ a.orb }})
+{% empty %}- Bez aspektov.
+{% endfor %}
+
+Detail reportu: https://pochop.sk/okamih/

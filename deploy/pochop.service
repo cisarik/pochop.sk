@@ -1,0 +1,19 @@
+[Unit]
+Description=Pochop Django App (Gunicorn)
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/pochop
+ExecStart=/var/www/pochop/venv/bin/gunicorn astro_project.wsgi:application \
+    --bind unix:/var/www/pochop/pochop.sock \
+    --workers 3 \
+    --timeout 180 \
+    --graceful-timeout 120
+Restart=always
+RestartSec=3
+EnvironmentFile=/var/www/pochop/.env
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,98 @@
+{% extends "transits/base.html" %}
+{% load static %}
+
+{% block title %}Pochop - Poznaj sam seba{% endblock %}
+
+{% block content %}
+{% if landing_moment_report %}
+<section class="landing-moment">
+    <article class="moment-card moment-card--chart moment-card--landing">
+        <div class="moment-card-top">
+            <h2>Aktuálne planetárne usporiadanie</h2>
+            
+        </div>
+        <div class="moment-wheel-wrap moment-wheel-wrap--landing">
+            <svg id="landingMomentWheel" class="moment-wheel-svg" viewBox="0 0 620 620" role="img" aria-label="Planetárne usporiadanie"></svg>
+            <div id="landingMomentWheelTip" class="wheel-tip" aria-hidden="true"></div>
+        </div>
+    </article>
+</section>
+{% endif %}
+
+<section class="hero hero-landing">
+    <div class="hero-bg">
+        <div class="stars"></div>
+        <div class="stars2"></div>
+    </div>
+    <div class="hero-content">
+        <div class="hero-shell">
+            <p class="hero-subtitle">
+                Astrologická analýza tvojho natálneho horoskopu, odporúčania na každý deň pomocou <span class="ai-badge ai-badge--model">{{ active_ai_model_badge }}</span>
+            </p>
+            <div class="hero-actions">
+                <a href="{% url 'transits:register' %}" class="btn-primary btn-hero">
+                    <span class="btn-icon">✦</span>
+                    Vytvoriť účet
+                </a>
+                <a href="{% url 'transits:login' %}" class="btn-outline btn-hero">
+                    Prihlásiť sa
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="landing-highlights">
+    <div class="security-card security-card--highlight">
+        <div class="security-icon">🔐</div>
+        <div class="security-content">
+            <h3>Bezpečnosť citlivých údajov</h3>
+            <p>
+                Dátum narodenia a miesto narodenia ukladáme šifrovane. Každý profil používa vlastný šifrovací kľúč odvodený z hesla používateľa.
+            </p>
+            <ul>
+                <li>Plain citlivé polia sú po uložení nulované.</li>
+                <li>V databáze ostáva iba šifrovaný tvar údajov.</li>
+                <li>Pre open-source snapshot je dostupná anonymizácia databázy.</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="features-grid features-grid--landing">
+        <div class="feature-card">
+            <div class="feature-icon">☉</div>
+            <h3>Natálna analýza</h3>
+            <p><span class="feature-lead">Hlboká AI analýza tvojho horoskopu</span>pri registrácii - osobnosť, silné stránky, výzvy.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">✦</div>
+            <h3>Denné hodnotenie</h3>
+            <p><span class="feature-lead">{{ active_ai_model_badge }}</span>analyzuje tranzity a pripraví odporúčania na každý deň.</p>
+        </div>
+        <div class="feature-card">
+            <div class="feature-icon">△</div>
+            <h3>30 dní dopredu</h3>
+            <p><span class="feature-lead">Interaktívna timeline tranzitov</span>s prehľadom planetárnych vplyvov na celý mesiac.</p>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+{% if landing_moment_report %}
+<script src="{% static 'js/moment-wheel.js' %}"></script>
+<script>
+(() => {
+    const planets = JSON.parse('{{ landing_moment_planets_json|escapejs }}');
+    const aspects = JSON.parse('{{ landing_moment_aspects_json|escapejs }}');
+    window.PochopMomentWheel.render({
+        svgId: 'landingMomentWheel',
+        tipId: 'landingMomentWheelTip',
+        planets,
+        aspects,
+        maxAspects: 44,
+    });
+})();
+</script>
+{% endif %}
+{% endblock %}

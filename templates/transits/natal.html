@@ -1,0 +1,393 @@
+{% extends "transits/base.html" %}
+{% load static %}
+
+{% block title %}Natálna analýza - Pochop{% endblock %}
+
+{% block content %}
+<!-- Profile header -->
+<section class="natal-header">
+    <div class="natal-header-inner">
+        <div class="natal-profile-row">
+            <div class="tl-avatar">{{ profile.name|first }}</div>
+            <div>
+                <div class="tl-name">{{ profile.name }}</div>
+                <div class="tl-meta">{{ profile_birth_date }} {{ profile_birth_time }} · {{ profile_birth_place }}</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Chart overview -->
+<section class="natal-overview">
+    <div class="natal-overview-inner">
+        <div class="natal-planets-grid">
+            {% for key, p in chart.planets.items %}
+            <div class="natal-planet-card">
+                <div class="natal-planet-symbol">{{ p.symbol }}</div>
+                <div class="natal-planet-name">{{ p.name_sk }}</div>
+                <div class="natal-planet-sign">{{ p.degree }}° {{ p.sign }}</div>
+            </div>
+            {% endfor %}
+            <div class="natal-planet-card natal-planet-card--special">
+                <div class="natal-planet-symbol">{{ chart.ascendant.symbol }}</div>
+                <div class="natal-planet-name">Ascendent</div>
+                <div class="natal-planet-sign">{{ chart.ascendant.degree }}° {{ chart.ascendant.sign }}</div>
+            </div>
+            <div class="natal-planet-card natal-planet-card--special">
+                <div class="natal-planet-symbol">{{ chart.midheaven.symbol }}</div>
+                <div class="natal-planet-name">Medium Coeli</div>
+                <div class="natal-planet-sign">{{ chart.midheaven.degree }}° {{ chart.midheaven.sign }}</div>
+            </div>
+        </div>
+
+        <div class="natal-balance-row">
+            <div class="natal-balance-card">
+                <h3>Elementy</h3>
+                <div class="natal-bars">
+                    {% for elem, count in chart.elements.items %}
+                    <div class="natal-bar-row">
+                        <span class="natal-bar-label">{{ elem }}</span>
+                        <div class="natal-bar-track">
+                            <div class="natal-bar-fill natal-bar-fill--{{ elem|lower }}" style="width: {{ count }}0%;"></div>
+                        </div>
+                        <span class="natal-bar-val">{{ count }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="natal-balance-card">
+                <h3>Modality</h3>
+                <div class="natal-bars">
+                    {% for mod, count in chart.modalities.items %}
+                    <div class="natal-bar-row">
+                        <span class="natal-bar-label">{{ mod }}</span>
+                        <div class="natal-bar-track">
+                            <div class="natal-bar-fill natal-bar-fill--mod" style="width: {{ count }}0%;"></div>
+                        </div>
+                        <span class="natal-bar-val">{{ count }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- AI Natálna analýza -->
+<section class="natal-ai-section">
+    <div class="natal-ai-inner">
+        <div class="ai-panel ai-panel--loaded" id="natalAiPanel">
+            <div class="ai-panel-border"></div>
+            <div class="ai-panel-inner">
+                <div class="ai-panel-header">
+                    <span class="ai-icon">✦</span>
+                    <span class="ai-panel-title">AI Natálna analýza</span>
+                    <span class="ai-badge">Gemini</span>
+                </div>
+
+                {% if has_analysis %}
+                <div id="natalResult"></div>
+                {% else %}
+                <div class="natal-wait" id="natalWaiting">
+                    <div class="natal-wait-head">
+                        <span class="natal-wait-icon">✦</span>
+                        <div>
+                            <div class="natal-wait-title">Generujem natálnu analýzu</div>
+                            <div class="natal-wait-sub" id="natalWaitSubtitle">Spúšťam výpočet...</div>
+                        </div>
+                    </div>
+                    <div class="ai-loading natal-wait-shimmer">
+                        <div class="ai-shimmer-line ai-shimmer-short"></div>
+                        <div class="ai-shimmer-line"></div>
+                        <div class="ai-shimmer-line ai-shimmer-med"></div>
+                    </div>
+                </div>
+                <div class="ai-error" id="natalWaitError" style="display:none"></div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Aspekty — hlboká analýza -->
+<section class="natal-aspects-section">
+    <div class="natal-aspects-inner">
+        <div class="aspects-header-row">
+            <h2 class="natal-section-title">Natálne aspekty — hlboká analýza</h2>
+            <span class="ai-badge">Gemini AI</span>
+        </div>
+
+        {% if has_analysis %}
+        <div id="aspectsResult"></div>
+        {% else %}
+        <div class="aspect-wait-list" id="aspectsWaiting">
+            <div class="aspect-card aspect-card--loading">
+                <div class="aspect-card-header">
+                    <span class="aspect-card-name">✦ Hĺbková analýza aspektov</span>
+                </div>
+                <div class="aspect-shimmer">
+                    <div class="ai-shimmer-line"></div>
+                    <div class="ai-shimmer-line"></div>
+                    <div class="ai-shimmer-line ai-shimmer-med"></div>
+                </div>
+            </div>
+            <div class="aspect-card aspect-card--loading">
+                <div class="aspect-card-header">
+                    <span class="aspect-card-name">✦ Prebieha spracovanie Gemini</span>
+                </div>
+                <div class="aspect-shimmer">
+                    <div class="ai-shimmer-line ai-shimmer-med"></div>
+                    <div class="ai-shimmer-line"></div>
+                </div>
+            </div>
+        </div>
+        <div class="ai-error" id="aspectsWaitError" style="display:none"></div>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const HAS_ANALYSIS = {{ has_analysis|yesno:"true,false" }};
+const SECTIONS = {{ analysis_sections|safe }};
+const ASPECTS = {{ aspects_data|safe }};
+const STATUS_URL = '{% url "transits:api_natal_analysis_status" %}';
+
+const SECTION_CLASSES = {
+    strengths: 'natal-section-focus',
+    challenges: 'natal-section-avoid',
+};
+
+const ASPECT_TYPE_COLORS = {
+    conjunction: { bg: 'rgba(139,92,246,0.08)', dot: '#8b5cf6' },
+    sextile:     { bg: 'rgba(16,185,129,0.08)', dot: '#10b981' },
+    trine:       { bg: 'rgba(16,185,129,0.08)', dot: '#10b981' },
+    square:      { bg: 'rgba(239,68,68,0.08)',  dot: '#ef4444' },
+    opposition:  { bg: 'rgba(245,158,11,0.08)', dot: '#f59e0b' },
+};
+const ASPECT_SYMBOLS = {
+    conjunction: '☌', sextile: '⚹', square: '□', trine: '△', opposition: '☍'
+};
+
+async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function typeText(el, text, speed = 12) {
+    const words = text.split(' ');
+    for (let i = 0; i < words.length; i++) {
+        el.textContent += (i > 0 ? ' ' : '') + words[i];
+        await sleep(speed);
+    }
+}
+
+async function typeList(ul, items, speed = 30) {
+    for (const item of items) {
+        const li = document.createElement('li');
+        ul.appendChild(li);
+        await typeText(li, item, speed);
+        await sleep(60);
+    }
+}
+
+// ─── Render natálnej analýzy s animáciou ───
+async function renderAnalysis() {
+    const result = document.getElementById('natalResult');
+    if (!result || !SECTIONS.length) return;
+
+    for (const section of SECTIONS) {
+        const div = document.createElement('div');
+        div.className = `ai-section natal-ai-item ${SECTION_CLASSES[section.id] || ''}`;
+
+        const icon = document.createElement('div');
+        icon.className = 'ai-section-icon';
+        icon.textContent = section.icon;
+        div.appendChild(icon);
+
+        const content = document.createElement('div');
+        content.className = 'ai-section-content';
+
+        const h4 = document.createElement('h4');
+        h4.textContent = section.title;
+        content.appendChild(h4);
+
+        div.appendChild(content);
+        result.appendChild(div);
+
+        await sleep(60);
+        div.classList.add('ai-section--visible');
+
+        if (section.items && section.items.length > 0) {
+            const ul = document.createElement('ul');
+            content.appendChild(ul);
+            await typeList(ul, section.items, 12);
+        } else if (section.text) {
+            const p = document.createElement('p');
+            content.appendChild(p);
+            await typeText(p, section.text, 6);
+        }
+
+        await sleep(80);
+    }
+}
+
+// ─── Render aspektov s animáciou ───
+async function renderAspects() {
+    const result = document.getElementById('aspectsResult');
+    if (!result || !ASPECTS.length) return;
+
+    for (const aspect of ASPECTS) {
+        const colors = ASPECT_TYPE_COLORS[aspect.aspect_type] || ASPECT_TYPE_COLORS.conjunction;
+        const symbol = ASPECT_SYMBOLS[aspect.aspect_type] || '☌';
+
+        const card = document.createElement('div');
+        card.className = 'aspect-card';
+        card.style.borderLeftColor = colors.dot;
+        card.style.background = colors.bg;
+
+        const header = document.createElement('div');
+        header.className = 'aspect-card-header';
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'aspect-card-name';
+        nameEl.innerHTML = `<span class="aspect-symbol" style="color:${colors.dot}">${symbol}</span> ${aspect.header}`;
+        header.appendChild(nameEl);
+
+        if (aspect.orb) {
+            const orbEl = document.createElement('span');
+            orbEl.className = 'aspect-card-orb';
+            const strength = aspect.orb < 1 ? 'Tesný' : aspect.orb < 3 ? 'Silný' : 'Širší';
+            orbEl.textContent = `${strength} · ${aspect.orb}°`;
+            header.appendChild(orbEl);
+        }
+
+        card.appendChild(header);
+
+        const textEl = document.createElement('p');
+        textEl.className = 'aspect-card-text';
+        card.appendChild(textEl);
+        result.appendChild(card);
+
+        await sleep(50);
+        card.classList.add('aspect-card--visible');
+
+        if (aspect.text) {
+            await typeText(textEl, aspect.text, 5);
+        } else {
+            textEl.textContent = 'Analýza nie je dostupná.';
+            textEl.style.cssText = 'color:var(--tx-3);font-style:italic;';
+        }
+
+        await sleep(60);
+    }
+}
+
+const WAIT_MESSAGES = [
+    'Počítam pozície planét a domov...',
+    'Gemini pripravuje tvoju osobnú analýzu...',
+    'Spájam aspekty do praktických odporúčaní...',
+    'Finalizujem výklad natálneho horoskopu...',
+];
+
+let waitTick = 0;
+let statusInterval = null;
+
+function setWaitSubtitle(text) {
+    const sub = document.getElementById('natalWaitSubtitle');
+    if (sub) sub.textContent = text;
+}
+
+function setWaitError(text) {
+    const natalErr = document.getElementById('natalWaitError');
+    const aspectsErr = document.getElementById('aspectsWaitError');
+    if (natalErr) {
+        natalErr.textContent = text;
+        natalErr.style.display = '';
+    }
+    if (aspectsErr) {
+        aspectsErr.textContent = text;
+        aspectsErr.style.display = '';
+    }
+}
+
+function clearWaitError() {
+    const natalErr = document.getElementById('natalWaitError');
+    const aspectsErr = document.getElementById('aspectsWaitError');
+    if (natalErr) natalErr.style.display = 'none';
+    if (aspectsErr) aspectsErr.style.display = 'none';
+}
+
+function stopStatusPolling() {
+    if (statusInterval) {
+        clearInterval(statusInterval);
+        statusInterval = null;
+    }
+}
+
+async function pollAnalysisStatus() {
+    waitTick++;
+    setWaitSubtitle(WAIT_MESSAGES[waitTick % WAIT_MESSAGES.length]);
+
+    try {
+        const resp = await fetch(`${STATUS_URL}?_ts=${Date.now()}`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'same-origin',
+            cache: 'no-store',
+        });
+        const data = await resp.json().catch(() => ({}));
+
+        if (!resp.ok) {
+            setWaitError(data.error || `Chyba servera (${resp.status}) pri načítaní stavu analýzy.`);
+            return;
+        }
+
+        if (data.has_analysis) {
+            clearWaitError();
+            setWaitSubtitle('Analýza je hotová, načítavam výsledky...');
+            stopStatusPolling();
+            setTimeout(() => window.location.reload(), 700);
+            return;
+        }
+
+        if (!data.can_generate) {
+            setWaitError(data.error || 'Gemini API kľúč nie je nakonfigurovaný.');
+            stopStatusPolling();
+            return;
+        }
+
+        if (data.error) {
+            setWaitError(data.error);
+        } else {
+            clearWaitError();
+        }
+
+        if (data.in_progress) {
+            setWaitSubtitle('Gemini práve generuje texty analýzy...');
+        } else if (data.started) {
+            setWaitSubtitle('Spúšťam generovanie analýzy...');
+        }
+    } catch (err) {
+        setWaitError('Nepodarilo sa pripojiť k serveru pri načítaní stavu analýzy. Skúšam znova...');
+    }
+}
+
+function startStatusPolling() {
+    if (statusInterval) return;
+    pollAnalysisStatus();
+    statusInterval = setInterval(pollAnalysisStatus, 3500);
+}
+
+if (HAS_ANALYSIS) {
+    renderAnalysis();
+    renderAspects();
+} else {
+    startStatusPolling();
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            stopStatusPolling();
+        } else {
+            startStatusPolling();
+        }
+    });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,54 @@
+{% extends "transits/base.html" %}
+{% load static %}
+
+{% block title %}Prihlásenie - Pochop{% endblock %}
+
+{% block content %}
+<section class="hero" style="padding: 40px 20px 24px;">
+    <div class="hero-bg"><div class="stars"></div><div class="stars2"></div></div>
+    <div class="hero-content">
+        <h1 class="hero-title" style="font-size: clamp(1.4rem,4vw,2.2rem);">Prihlásenie</h1>
+        <p class="hero-subtitle">Vitajte späť</p>
+    </div>
+</section>
+
+<section class="form-section">
+    <div class="form-card">
+        <h2 class="form-title">Prihláste sa</h2>
+
+        {% if form.non_field_errors %}
+        <div class="alert alert-error">
+            {% for error in form.non_field_errors %}{{ error }}<br>{% endfor %}
+        </div>
+        {% endif %}
+
+        <form method="POST">
+            {% csrf_token %}
+            <div class="form-grid" style="grid-template-columns: 1fr;">
+                <div class="form-group">
+                    <label for="id_username">Používateľské meno</label>
+                    {{ form.username }}
+                    {% if form.username.errors %}<div class="field-error">{{ form.username.errors.0 }}</div>{% endif %}
+                </div>
+
+                <div class="form-group">
+                    <label for="id_password">Heslo</label>
+                    {{ form.password }}
+                    {% if form.password.errors %}<div class="field-error">{{ form.password.errors.0 }}</div>{% endif %}
+                </div>
+            </div>
+
+            <button type="submit" class="btn-primary">
+                <span class="btn-icon">→</span>
+                Prihlásiť
+            </button>
+        </form>
+
+        <div class="auth-alt">
+            Zabudli ste heslo? <a href="{% url 'transits:password_reset' %}">Obnoviť heslo</a><br>
+            Neprišiel verifikačný e-mail? <a href="{% url 'transits:verify_email_resend' %}">Poslať znovu</a><br>
+            Nemáte účet? <a href="{% url 'transits:register' %}">Zaregistrujte sa</a>
+        </div>
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,11 @@
+[Unit]
+Description=Pochop Daily Moment Report Generator
+After=network.target
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/pochop
+EnvironmentFile=/var/www/pochop/.env
+ExecStart=/var/www/pochop/venv/bin/python /var/www/pochop/manage.py generate_moment_report --force --email-admin
