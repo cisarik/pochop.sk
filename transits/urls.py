@@ -5,6 +5,7 @@ app_name = 'transits'
 
 urlpatterns = [
     path('', views.index, name='index'),
+    path('lexikon/', views.lexikon, name='lexikon'),
     path('okamih/', views.moment_overview, name='moment_overview'),
     path('email/verify/sent/', views.verify_email_sent_view, name='verify_email_sent'),
     path('email/verify/resend/', views.resend_verification_view, name='verify_email_resend'),

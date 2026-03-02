@@ -49,6 +49,32 @@
         });
     }
 
+    function bindLexikonLink({ node, lexikonUrl, params }) {
+        if (!node || !lexikonUrl) {
+            return;
+        }
+        const openLexikon = () => {
+            const url = new URL(lexikonUrl, window.location.origin);
+            Object.entries(params || {}).forEach(([k, v]) => {
+                if (v) url.searchParams.set(k, v);
+            });
+            window.location.href = url.toString();
+        };
+        node.style.cursor = 'pointer';
+        node.setAttribute('role', 'link');
+        node.setAttribute('tabindex', '0');
+        node.addEventListener('click', (e) => {
+            e.preventDefault();
+            openLexikon();
+        });
+        node.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                openLexikon();
+            }
+        });
+    }
+
     function render(options) {
         const opts = options || {};
         const svg = document.getElementById(opts.svgId || 'momentWheel');
@@ -57,6 +83,7 @@
         }
 
         const tip = opts.tipId ? document.getElementById(opts.tipId) : null;
+        const lexikonUrl = opts.lexikonUrl || '';
         const planets = Array.isArray(opts.planets) ? opts.planets : [];
         const aspects = Array.isArray(opts.aspects) ? opts.aspects : [];
 
@@ -68,9 +95,10 @@
 
         svg.innerHTML = '';
 
+        const wheelBg = el('circle', { cx: center, cy: center, r: rOuter + 0.5, class: 'wheel-bg' });
         const ringOuter = el('circle', { cx: center, cy: center, r: rOuter, class: 'wheel-ring' });
         const ringInner = el('circle', { cx: center, cy: center, r: rInner, class: 'wheel-ring wheel-ring--inner' });
-        svg.append(ringOuter, ringInner);
+        svg.append(wheelBg, ringOuter, ringInner);
 
         for (let i = 0; i < 12; i += 1) {
             const angle = i * 30;
@@ -141,6 +169,13 @@
                 tip,
                 svg,
             });
+            bindLexikonLink({
+                node: line,
+                lexikonUrl,
+                params: {
+                    transit: `${aspect.planet1}-${aspect.aspect}-${aspect.planet2}`,
+                },
+            });
         });
 
         planets.forEach((planet) => {
@@ -157,6 +192,13 @@
             svg.appendChild(text);
 
             bindTip({ node: text, text: planet.name_sk, tip, svg });
+            bindLexikonLink({
+                node: text,
+                lexikonUrl,
+                params: {
+                    planet: planet.key,
+                },
+            });
         });
     }
 

@@ -1,0 +1,164 @@
+{% extends "transits/base.html" %}
+
+{% block title %}Lexikón astrológie - Pochop{% endblock %}
+
+{% block content %}
+<section class="lex-wrap">
+    <header class="lex-hero">
+        <div class="lex-hero-head">
+            <div class="lex-hero-icon" aria-hidden="true">📘</div>
+            <p class="lex-hero-label">Astrologický lexikón</p>
+        </div>
+        <h1>Nauč sa čítať planéty, aspekty a tranzity do hĺbky</h1>
+        <p>
+            Táto stránka zhromažďuje výklady, ktoré Pochop používa pri tranzitoch. Nájdeš tu význam planét,
+            princípy aspektov aj detailné vysvetlenia kombinácií typu <strong>Mesiac opozícia Mars</strong>.
+        </p>
+    </header>
+
+    <section class="lex-block lex-block--guide" id="lex-guide">
+        <h2>Ako Čítať Tranzity</h2>
+        <p>
+            Tranzit je aktuálna poloha planéty voči tvojej natálnej mape. Zapisuje sa ako:
+            <code>tranzitná planéta + aspekt + natálna planéta</code>.
+        </p>
+        <ul class="lex-guide-list">
+            <li><strong>Príklad:</strong> <code>Mesiac opozícia Mars</code> znamená, že aktuálny Mesiac tvorí 180° napätie s tvojím natálnym Marsom.</li>
+            <li><strong>Harmonické aspekty:</strong> sextil a trigón skôr podporujú plynulosť a spoluprácu.</li>
+            <li><strong>Napäťové aspekty:</strong> kvadratúra a opozícia tlačia na zmenu, vedomé rozhodnutie a rast.</li>
+            <li><strong>Konjunkcia:</strong> silná koncentrácia energie. Môže byť veľmi tvorivá aj intenzívna.</li>
+        </ul>
+    </section>
+
+    <section class="lex-block" id="lex-planets">
+        <h2>Planéty V Astrológii</h2>
+        <div class="lex-grid lex-grid--planets">
+            {% for p in planet_cards %}
+            <article id="{{ p.id }}" class="lex-card lex-card--planet">
+                <div class="lex-card-top">
+                    <span class="lex-symbol">{{ p.symbol }}</span>
+                    <h3>{{ p.name }}</h3>
+                </div>
+                <p class="lex-keywords">{{ p.keywords|join:", " }}</p>
+                <p>{{ p.description }}</p>
+                <p class="lex-focus"><strong>Zameranie:</strong> {{ p.focus }}</p>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="lex-block" id="lex-aspects">
+        <h2>Typy Aspektov</h2>
+        <div class="lex-grid lex-grid--aspects">
+            {% for a in aspect_cards %}
+            <article id="{{ a.id }}" class="lex-card lex-card--aspect">
+                <div class="lex-card-top">
+                    <span class="lex-symbol">{{ a.symbol }}</span>
+                    <h3>{{ a.name }} <small>({{ a.angle }})</small></h3>
+                </div>
+                <p class="lex-tone">{{ a.tone }}</p>
+                <p>{{ a.description }}</p>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="lex-block" id="lex-transits">
+        <div class="lex-transits-head">
+            <h2>Detailný Lexikón Tranzitov</h2>
+            <p>{{ transit_total_count }} kombinácií výkladov</p>
+        </div>
+
+        <div class="lex-search-wrap">
+            <input
+                id="lexSearch"
+                class="form-input"
+                type="text"
+                placeholder="Hľadaj napr. mesiac opozícia mars, venuša, kvadratúra..."
+                aria-label="Hľadanie v lexikóne tranzitov"
+            >
+        </div>
+
+        <div class="lex-transit-groups" id="lexTransitGroups">
+            {% for group in transit_groups %}
+            <details class="lex-group" {% if forloop.first %}open{% endif %}>
+                <summary>
+                    <span class="lex-group-symbol">{{ group.symbol }}</span>
+                    <span class="lex-group-title">Tranzity planéty {{ group.name }}</span>
+                    <span class="lex-group-count">{{ group.count }}</span>
+                </summary>
+                <div class="lex-group-body">
+                    {% for item in group.items %}
+                    <article
+                        id="{{ item.id }}"
+                        class="lex-transit-item lex-transit-item--{{ item.effect }}"
+                        data-lex-search="{{ item.transit_name }} {{ item.aspect_name }} {{ item.natal_name }} {{ item.text|lower }}"
+                    >
+                        <header>
+                            <h3>{{ item.transit_symbol }} {{ item.aspect_symbol }} {{ item.natal_symbol }} {{ item.transit_name }} {{ item.aspect_name }} {{ item.natal_name }}</h3>
+                            <span class="lex-effect">{{ item.effect }}</span>
+                        </header>
+                        <p>{{ item.text }}</p>
+                    </article>
+                    {% endfor %}
+                </div>
+            </details>
+            {% endfor %}
+        </div>
+    </section>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(() => {
+    const input = document.getElementById('lexSearch');
+    const groups = Array.from(document.querySelectorAll('.lex-group'));
+    const items = Array.from(document.querySelectorAll('.lex-transit-item'));
+    const focusTargetId = '{{ focus_target_id|default:""|escapejs }}';
+    const normalize = (value) => (value || '')
+        .toString()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+
+    if (input) {
+        const applySearch = () => {
+            const q = normalize(input.value.trim());
+            items.forEach((item) => {
+                const haystack = normalize(item.getAttribute('data-lex-search') || '');
+                const visible = !q || haystack.includes(q);
+                item.hidden = !visible;
+            });
+
+            groups.forEach((group) => {
+                const visibleItems = group.querySelectorAll('.lex-transit-item:not([hidden])');
+                const hasVisible = visibleItems.length > 0;
+                group.hidden = !hasVisible;
+                if (q && hasVisible) {
+                    group.open = true;
+                }
+            });
+        };
+        input.addEventListener('input', applySearch);
+    }
+
+    if (focusTargetId) {
+        const target = document.getElementById(focusTargetId);
+        if (target) {
+            let parent = target.parentElement;
+            while (parent) {
+                if (parent.tagName === 'DETAILS') {
+                    parent.open = true;
+                }
+                parent = parent.parentElement;
+            }
+            target.classList.add('lex-focus-target');
+            setTimeout(() => {
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 80);
+        }
+    }
+})();
+</script>
+{% endblock %}

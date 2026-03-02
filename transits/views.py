@@ -42,6 +42,7 @@ from .forms import (
     ResendVerificationForm,
 )
 from .moment_service import MOMENT_TZ, get_or_generate_moment_report
+from .transit_data import TRANSIT_DATA
 from .gemini_utils import (
     GeminiLimitExceededError,
     generate_gemini_text,
@@ -67,6 +68,134 @@ logger = logging.getLogger(__name__)
 ANALYSIS_STATE_LOCK = threading.Lock()
 ANALYSIS_IN_PROGRESS = set()
 ANALYSIS_LAST_ERROR = {}
+PLANET_ORDER = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune', 'pluto']
+ASPECT_ORDER = ['conjunction', 'sextile', 'square', 'trine', 'opposition']
+
+PLANET_LEXICON = {
+    'sun': {
+        'keywords': ['identita', 'vôľa', 'životná sila'],
+        'description': (
+            'Slnko ukazuje, kým sa vedome stávaš. Hovorí o sebahodnote, smerovaní a potrebe žiť autenticky. '
+            'V tranzitoch zvýrazňuje témy sebarealizácie, autority a osobného rozhodnutia.'
+        ),
+        'focus': 'Sebavyjadrenie, ego, životný smer, vitalita.',
+    },
+    'moon': {
+        'keywords': ['emócie', 'bezpečie', 'vnútorný svet'],
+        'description': (
+            'Mesiac reprezentuje citové reakcie, potrebu istoty a podvedomé návyky. '
+            'V tranzitoch aktivuje náladu, rodinné témy, potrebu oddychu a starostlivosti.'
+        ),
+        'focus': 'Emočné potreby, domov, intuícia, vnútorný rytmus.',
+    },
+    'mercury': {
+        'keywords': ['myslenie', 'komunikácia', 'učenie'],
+        'description': (
+            'Merkúr opisuje spôsob, akým spracúvaš informácie a komunikuješ. '
+            'V tranzitoch sa prejavuje v rozhovoroch, rozhodovaní, vyjednávaní a mentálnej agilite.'
+        ),
+        'focus': 'Reč, logika, písanie, obchod, mobility.',
+    },
+    'venus': {
+        'keywords': ['vzťahy', 'hodnoty', 'príťažlivosť'],
+        'description': (
+            'Venuša ukazuje, čo považuješ za krásne a hodnotné. '
+            'V tranzitoch rieši lásku, blízkosť, vkus, financie a schopnosť prijímať potešenie.'
+        ),
+        'focus': 'Partnerstvá, estetika, peniaze, harmónia.',
+    },
+    'mars': {
+        'keywords': ['akcia', 'odvaha', 'hranice'],
+        'description': (
+            'Mars reprezentuje energiu, ktorou konáš a presadzuješ svoju vôľu. '
+            'V tranzitoch prináša pohyb, tlak na rozhodnutie, súťaženie a niekedy konflikt.'
+        ),
+        'focus': 'Motivácia, výkon, hnev, sexualita, iniciatíva.',
+    },
+    'jupiter': {
+        'keywords': ['rast', 'zmysel', 'expanzia'],
+        'description': (
+            'Jupiter ukazuje, kde sa rozširuje obzor a kde cítiš dôveru v život. '
+            'V tranzitoch podporuje učenie, cestovanie, víziu a príležitosti pre rast.'
+        ),
+        'focus': 'Viera, filozofia, šťastie, rozvoj, veľkorysosť.',
+    },
+    'saturn': {
+        'keywords': ['disciplína', 'zodpovednosť', 'hranice'],
+        'description': (
+            'Saturn prináša realitu, štruktúru a lekcie trpezlivosti. '
+            'V tranzitoch preveruje záväzky, nastavuje limity a buduje dlhodobú stabilitu.'
+        ),
+        'focus': 'Povinnosti, vytrvalosť, čas, autorita, zrelosť.',
+    },
+    'uranus': {
+        'keywords': ['zmena', 'sloboda', 'inovácia'],
+        'description': (
+            'Urán je princíp prebudenia a oslobodenia od zastaraných vzorcov. '
+            'V tranzitoch prináša náhle obraty, prekvapenia a tlak na autenticitu.'
+        ),
+        'focus': 'Nezávislosť, originalita, revolúcia, prelom.',
+    },
+    'neptune': {
+        'keywords': ['intuícia', 'spiritualita', 'ilúzia'],
+        'description': (
+            'Neptún rozpúšťa pevné hranice a otvára citlivosť na jemné vrstvy reality. '
+            'V tranzitoch môže priniesť inšpiráciu, ale aj nejasnosť alebo idealizáciu.'
+        ),
+        'focus': 'Sny, empatia, umenie, mystika, dezilúzia.',
+    },
+    'pluto': {
+        'keywords': ['transformácia', 'moc', 'obnova'],
+        'description': (
+            'Pluto ide do hĺbky a odhaľuje to, čo je skryté. '
+            'V tranzitoch spúšťa intenzívnu premenu, koniec starých štruktúr a vznik novej sily.'
+        ),
+        'focus': 'Psychologická hĺbka, tieň, regenerácia, kontrola.',
+    },
+}
+
+ASPECT_LEXICON = {
+    'conjunction': {
+        'angle': '0°',
+        'tone': 'silná koncentrácia energie',
+        'description': (
+            'Konjunkcia spája dve energie do jedného bodu. Môže byť veľmi tvorivá aj intenzívna, '
+            'podľa povahy planét. Téma je výrazná, neprehliadnuteľná a žiada vedomé uchopenie.'
+        ),
+    },
+    'sextile': {
+        'angle': '60°',
+        'tone': 'podporný, spolupracujúci tok',
+        'description': (
+            'Sextil prináša príležitosť, ktorú treba aktívne využiť. '
+            'Je harmonický, praktický a často podporuje učenie, kontakty a plynulý pokrok.'
+        ),
+    },
+    'square': {
+        'angle': '90°',
+        'tone': 'napätie, tlak na akciu',
+        'description': (
+            'Kvadratúra odhaľuje konflikt dvoch princípov. '
+            'Toto napätie však vie byť mimoriadne tvorivé, ak vedie k zmene návykov a lepším rozhodnutiam.'
+        ),
+    },
+    'trine': {
+        'angle': '120°',
+        'tone': 'plynulá harmónia',
+        'description': (
+            'Trigón podporuje prirodzený tok a ľahkosť. '
+            'Veci idú hladšie, no stále je dôležité tento priaznivý potenciál vedome nasmerovať.'
+        ),
+    },
+    'opposition': {
+        'angle': '180°',
+        'tone': 'polarita a zrkadlenie',
+        'description': (
+            'Opozícia ukazuje dve strany jednej osi. '
+            'Prináša konfrontáciu, ktorá učí rovnováhe medzi extrémami a lepšiemu pochopeniu vzťahov.'
+        ),
+    },
+}
 
 
 def _mask_email(email):
@@ -206,6 +335,102 @@ def moment_overview(request):
         'moment_aspects_json': json.dumps(report.aspects_json, ensure_ascii=False),
         'moment_ai_json': json.dumps(report.ai_report_json, ensure_ascii=False),
         'moment_generated_at': report.updated_at,
+    })
+
+
+def lexikon(request):
+    """Verejný astrologický lexikón s planétami, aspektmi a tranzitmi."""
+    planet_order_idx = {k: i for i, k in enumerate(PLANET_ORDER)}
+    aspect_order_idx = {k: i for i, k in enumerate(ASPECT_ORDER)}
+
+    grouped = {k: [] for k in PLANET_ORDER}
+    seen = set()
+    transit_ids = set()
+    for transit, natal, aspect, effect, text in TRANSIT_DATA:
+        key = (transit, natal, aspect)
+        if key in seen:
+            continue
+        seen.add(key)
+        row_id = f"transit-{transit}-{aspect}-{natal}"
+        transit_ids.add(row_id)
+        grouped.setdefault(transit, []).append({
+            'id': row_id,
+            'transit': transit,
+            'natal': natal,
+            'aspect': aspect,
+            'effect': effect,
+            'text': text,
+            'transit_name': PLANET_NAMES_SK.get(transit, transit.title()),
+            'natal_name': PLANET_NAMES_SK.get(natal, natal.title()),
+            'aspect_name': ASPECT_NAMES_SK.get(aspect, aspect),
+            'transit_symbol': PLANET_SYMBOLS.get(transit, ''),
+            'natal_symbol': PLANET_SYMBOLS.get(natal, ''),
+            'aspect_symbol': ASPECT_SYMBOLS.get(aspect, ''),
+        })
+
+    transit_groups = []
+    for transit_key in PLANET_ORDER:
+        rows = grouped.get(transit_key, [])
+        rows.sort(key=lambda r: (
+            planet_order_idx.get(r['natal'], 999),
+            aspect_order_idx.get(r['aspect'], 999),
+        ))
+        transit_groups.append({
+            'key': transit_key,
+            'name': PLANET_NAMES_SK.get(transit_key, transit_key.title()),
+            'symbol': PLANET_SYMBOLS.get(transit_key, ''),
+            'count': len(rows),
+            'items': rows,
+        })
+
+    planet_cards = []
+    for key in PLANET_ORDER:
+        info = PLANET_LEXICON.get(key, {})
+        planet_cards.append({
+            'id': f"planet-{key}",
+            'key': key,
+            'name': PLANET_NAMES_SK.get(key, key.title()),
+            'symbol': PLANET_SYMBOLS.get(key, ''),
+            'keywords': info.get('keywords', []),
+            'description': info.get('description', ''),
+            'focus': info.get('focus', ''),
+        })
+
+    aspect_cards = []
+    for key in ASPECT_ORDER:
+        info = ASPECT_LEXICON.get(key, {})
+        aspect_cards.append({
+            'id': f"aspect-{key}",
+            'key': key,
+            'name': ASPECT_NAMES_SK.get(key, key).capitalize(),
+            'symbol': ASPECT_SYMBOLS.get(key, ''),
+            'angle': info.get('angle', ''),
+            'tone': info.get('tone', ''),
+            'description': info.get('description', ''),
+        })
+
+    focus_target_id = ''
+    planet_target = (request.GET.get('planet') or '').strip().lower()
+    aspect_target = (request.GET.get('aspect') or '').strip().lower()
+    transit_target = (request.GET.get('transit') or '').strip().lower()
+
+    if planet_target in PLANET_NAMES_SK:
+        focus_target_id = f"planet-{planet_target}"
+    if aspect_target in ASPECT_NAMES_SK:
+        focus_target_id = f"aspect-{aspect_target}"
+    if transit_target:
+        parts = transit_target.split('-')
+        if len(parts) == 3:
+            maybe_id = f"transit-{parts[0]}-{parts[1]}-{parts[2]}"
+            if maybe_id in transit_ids:
+                focus_target_id = maybe_id
+
+    return render(request, 'transits/lexikon.html', {
+        'planet_cards': planet_cards,
+        'aspect_cards': aspect_cards,
+        'transit_groups': transit_groups,
+        'transit_total_count': len(seen),
+        'focus_target_id': focus_target_id,
     })
 
 

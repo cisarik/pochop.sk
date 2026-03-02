@@ -88,9 +88,10 @@
             <p><span class="feature-lead">{{ active_ai_model_badge }}</span>analyzuje tranzity a pripraví odporúčania na každý deň.</p>
         </div>
         <div class="feature-card">
-            <div class="feature-icon">△</div>
-            <h3>30 dní dopredu</h3>
-            <p><span class="feature-lead">Interaktívna timeline tranzitov</span>s prehľadom planetárnych vplyvov na celý mesiac.</p>
+            <div class="feature-icon">📘</div>
+            <h3>Lexikón</h3>
+            <p><span class="feature-lead">Naučte sa astrológiu krok za krokom</span>vysvetlenia planét, aspektov a tranzitov pre začiatočníkov aj pokročilých.</p>
+            <a href="{% url 'transits:lexikon' %}" class="moment-mini-link">Otvoriť lexikón</a>
         </div>
     </div>
 </section>
@@ -109,6 +110,7 @@
         planets,
         aspects,
         maxAspects: 44,
+        lexikonUrl: "{% url 'transits:lexikon' %}",
     });
 })();
 </script>
