@@ -30,12 +30,12 @@
                 Astrologická analýza tvojho natálneho horoskopu, odporúčania na každý deň pomocou <span class="ai-badge ai-badge--model">{{ active_ai_model_badge }}</span>
             </p>
             <div class="hero-actions">
+                <a href="{% url 'transits:login' %}" class="btn-outline btn-hero">
+                    Prihlásiť sa
+                </a>
                 <a href="{% url 'transits:register' %}" class="btn-primary btn-hero">
                     <span class="btn-icon">✦</span>
                     Vytvoriť účet
-                </a>
-                <a href="{% url 'transits:login' %}" class="btn-outline btn-hero">
-                    Prihlásiť sa
                 </a>
             </div>
         </div>
@@ -43,6 +43,24 @@
 </section>
 
 <section class="landing-highlights">
+    <article class="timeline-showcase-card">
+        <div class="timeline-showcase-copy">
+            <div class="timeline-showcase-head">
+                <div class="timeline-showcase-icon" aria-hidden="true">⏱️</div>
+                <p class="timeline-showcase-kicker">Tranzitná timeline</p>
+            </div>
+            <h3>Interaktívny prehľad tranzitov na 30 dní dopredu</h3>
+            <p>
+                Sleduj, kedy sa energie zosilňujú, kedy kulminujú a ktoré dni sú vhodné na rozhodnutia, rozhovory alebo zmenu smeru.
+                Timeline ti ukáže vývoj v čase, nie len statický výsek.
+            </p>
+            <p class="timeline-showcase-note">Planéty, aspekty a dĺžky vplyvov v jednom čitateľnom obraze.</p>
+        </div>
+        <figure class="timeline-showcase-visual">
+            <img src="{% static 'jpg/tranzity.jpg' %}" alt="Ukážka interaktívnej timeline tranzitov s aspektmi a planetárnymi vplyvmi">
+        </figure>
+    </article>
+
     <div class="security-card security-card--highlight">
         <div class="security-icon">🔐</div>
         <div class="security-content">

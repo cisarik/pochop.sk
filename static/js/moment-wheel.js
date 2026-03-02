@@ -21,9 +21,21 @@
             return;
         }
         const moveTip = (e) => {
-            const box = svg.getBoundingClientRect();
-            tip.style.left = `${e.clientX - box.left + 12}px`;
-            tip.style.top = `${e.clientY - box.top - 14}px`;
+            const host = tip.offsetParent || svg.parentElement || svg;
+            const box = host.getBoundingClientRect();
+            const tipWidth = tip.offsetWidth || 64;
+            const tipHeight = tip.offsetHeight || 26;
+            const pad = 8;
+
+            let x = e.clientX - box.left + 12;
+            let y = e.clientY - box.top - 14;
+
+            // Keep tooltip inside wheel container to avoid edge jumps.
+            x = Math.max((tipWidth / 2) + pad, Math.min(box.width - (tipWidth / 2) - pad, x));
+            y = Math.max(tipHeight + pad, Math.min(box.height - pad, y));
+
+            tip.style.left = `${x}px`;
+            tip.style.top = `${y}px`;
         };
         node.style.pointerEvents = 'all';
         node.addEventListener('mouseenter', (e) => {
