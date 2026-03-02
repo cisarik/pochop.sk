@@ -34,9 +34,9 @@ class TransitAspectAdmin(admin.ModelAdmin):
 
 @admin.register(NatalProfile)
 class NatalProfileAdmin(admin.ModelAdmin):
-    list_display = ['name', 'user', 'public_hash', 'has_encrypted_birth', 'created_at']
+    list_display = ['name', 'gender', 'user', 'public_hash', 'has_encrypted_birth', 'created_at']
     search_fields = ['name', 'user__username', 'public_hash']
-    list_filter = ['created_at']
+    list_filter = ['gender', 'created_at']
     readonly_fields = ['created_at', 'updated_at']
 
     @admin.display(boolean=True, description='PII encrypted')

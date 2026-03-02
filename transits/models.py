@@ -41,6 +41,11 @@ EFFECT_CHOICES = [
     ('neutral', 'Neutrálny'),
 ]
 
+GENDER_CHOICES = [
+    ('male', 'Muž'),
+    ('female', 'Žena'),
+]
+
 PLANET_SYMBOLS = {
     'sun': '☉',
     'moon': '☽',
@@ -149,6 +154,7 @@ class NatalProfile(models.Model):
         verbose_name='Používateľ',
     )
     name = models.CharField('Meno', max_length=100)
+    gender = models.CharField('Pohlavie', max_length=10, choices=GENDER_CHOICES, default='male')
     # Legacy/plain fields zostávajú pre spätnú kompatibilitu, no nové zápisy ich nulujú.
     birth_date = models.DateField('Dátum narodenia', null=True, blank=True)
     birth_time = models.TimeField('Čas narodenia', null=True, blank=True)

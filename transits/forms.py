@@ -12,13 +12,19 @@ from django.core.validators import validate_email
 class RegistrationForm(forms.Form):
     """Registračný formulár s natálnymi údajmi."""
 
+    GENDER_CHOICES = (
+        ('male', 'Muž'),
+        ('female', 'Žena'),
+    )
+
     username = forms.CharField(
         label='Používateľské meno',
         max_length=150,
         widget=forms.TextInput(attrs={
             'class': 'form-input',
-            'placeholder': 'Zadaj používateľské meno',
+            'placeholder': 'Používateľské meno',
             'autocomplete': 'username',
+            'aria-label': 'Používateľské meno',
         }),
     )
     email = forms.EmailField(
@@ -26,24 +32,27 @@ class RegistrationForm(forms.Form):
         max_length=254,
         widget=forms.EmailInput(attrs={
             'class': 'form-input',
-            'placeholder': 'meno@domena.sk',
+            'placeholder': 'E-mail',
             'autocomplete': 'email',
+            'aria-label': 'E-mail',
         }),
     )
     password1 = forms.CharField(
         label='Heslo',
         widget=forms.PasswordInput(attrs={
             'class': 'form-input',
-            'placeholder': 'Zadaj heslo',
+            'placeholder': 'Heslo',
             'autocomplete': 'new-password',
+            'aria-label': 'Heslo',
         }),
     )
     password2 = forms.CharField(
         label='Potvrdenie hesla',
         widget=forms.PasswordInput(attrs={
             'class': 'form-input',
-            'placeholder': 'Zopakuj heslo',
+            'placeholder': 'Potvrdenie hesla',
             'autocomplete': 'new-password',
+            'aria-label': 'Potvrdenie hesla',
         }),
     )
     birth_date = forms.DateField(
@@ -80,6 +89,17 @@ class RegistrationForm(forms.Form):
             'autocomplete': 'off',
         }),
     )
+    gender = forms.ChoiceField(
+        label='Pohlavie',
+        choices=GENDER_CHOICES,
+        initial='male',
+        required=False,
+        widget=forms.Select(attrs={
+            'class': 'form-input',
+            'id': 'id_gender',
+            'aria-label': 'Pohlavie',
+        }),
+    )
     birth_lat = forms.FloatField(widget=forms.HiddenInput(), required=False)
     birth_lon = forms.FloatField(widget=forms.HiddenInput(), required=False)
 
@@ -114,6 +134,8 @@ class RegistrationForm(forms.Form):
             self.add_error('birth_place', 'Vyber miesto zo zoznamu.')
         if not cleaned.get('birth_time'):
             cleaned['birth_time'] = __import__('datetime').time(12, 0)
+        if cleaned.get('gender') not in dict(self.GENDER_CHOICES):
+            cleaned['gender'] = 'male'
         return cleaned
 
 

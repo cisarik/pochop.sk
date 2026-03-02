@@ -150,6 +150,7 @@ class RegistrationAndPrivacyFlowTests(TestCase):
         user = User.objects.get(username='reg_user')
         self.assertFalse(user.is_active)
         profile = NatalProfile.objects.get(user__username='reg_user')
+        self.assertEqual(profile.gender, 'male')
         self.assertTrue(profile.birth_date_encrypted.startswith('usr::'))
         self.assertTrue(profile.birth_place_encrypted.startswith('usr::'))
         self.assertIsNone(profile.birth_date)
@@ -182,6 +183,25 @@ class RegistrationAndPrivacyFlowTests(TestCase):
         self.assertEqual(timeline_response.status_code, 200)
         self.assertContains(timeline_response, 'Bratislava')
         self.assertContains(timeline_response, '17.05.1990')
+
+    def test_registration_persists_selected_gender(self):
+        client = Client(HTTP_HOST='pochop.sk')
+        payload = {
+            'username': 'reg_user_f',
+            'email': 'reg_user_f@example.com',
+            'password1': 'RegStrong123!',
+            'password2': 'RegStrong123!',
+            'birth_date': '17.05.1990',
+            'birth_time': '08:30',
+            'birth_place': 'Bratislava',
+            'birth_lat': '48.1486',
+            'birth_lon': '17.1077',
+            'gender': 'female',
+        }
+        response = client.post(reverse('transits:register'), payload)
+        self.assertEqual(response.status_code, 302)
+        profile = NatalProfile.objects.get(user__username='reg_user_f')
+        self.assertEqual(profile.gender, 'female')
 
     def test_api_transits_hides_birth_metadata_without_unlock(self):
         user = User.objects.create_user(username='api_priv_user', password='ApiPass123!')

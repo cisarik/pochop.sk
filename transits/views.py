@@ -459,6 +459,7 @@ def register_view(request):
                     profile = NatalProfile.objects.create(
                         user=user,
                         name=cd['username'],
+                        gender=cd.get('gender') or 'male',
                         timezone=tz,
                     )
                     # Ulož PII zašifrovane user heslom.
@@ -976,6 +977,13 @@ VÝZVY NA PRÁCU:
 (3-4 vety - celková syntéza horoskopu, čo je tvojím životným poslaním, kam smeruješ)"""
 
 
+def _gender_addressing_instruction(profile):
+    """Vráti jazykový pokyn pre oslovovanie podľa pohlavia profilu."""
+    if getattr(profile, 'gender', 'male') == 'female':
+        return "Oslovuj používateľku v ženskom rode (napr. 'si pripravená', 'máš otvorenú tému')."
+    return "Oslovuj používateľa v mužskom rode (napr. 'si pripravený', 'máš otvorenú tému')."
+
+
 def _build_natal_prompt(profile, chart):
     """Zostaví detailný prompt pre natálnu analýzu."""
     planets = chart['planets']
@@ -988,6 +996,8 @@ def _build_natal_prompt(profile, chart):
     lines = [
         f"NATÁLNY HOROSKOP pre: {profile.name}",
         f"Profil hash: {profile.public_hash or 'n/a'}",
+        f"Pohlavie profilu: {profile.get_gender_display()}",
+        f"Jazykový pokyn: {_gender_addressing_instruction(profile)}",
         "",
         "═══ POZÍCIE PLANÉT ═══",
     ]
@@ -1415,6 +1425,8 @@ def _build_aspects_prompt(profile, chart):
     lines = [
         f"NATÁLNY HOROSKOP: {profile.name}",
         f"Profil hash: {profile.public_hash or 'n/a'}",
+        f"Pohlavie profilu: {profile.get_gender_display()}",
+        f"Jazykový pokyn: {_gender_addressing_instruction(profile)}",
         f"Ascendent: {asc['degree']:.1f}° {asc['sign']}",
         "",
         "POZÍCIE PLANÉT (pre kontext):",
@@ -1640,11 +1652,13 @@ VÝSTUP:
 """
 
 
-def _build_ai_prompt(profile_name, target_date, active_transits):
+def _build_ai_prompt(profile, target_date, active_transits):
     """Zostaví user prompt pre Gemini z aktívnych tranzitov."""
     lines = [
         f"Dátum: {target_date.strftime('%d.%m.%Y (%A)')}",
-        f"Osoba: {profile_name}",
+        f"Osoba: {profile.name}",
+        f"Pohlavie profilu: {profile.get_gender_display()}",
+        f"Jazykový pokyn: {_gender_addressing_instruction(profile)}",
         "",
         "Aktívne tranzity v tento deň:",
     ]
@@ -1819,7 +1833,7 @@ def ai_day_report(request):
         })
 
     # Zostavíme prompt
-    user_prompt = _build_ai_prompt(profile.name, target_date, active)
+    user_prompt = _build_ai_prompt(profile, target_date, active)
 
     # Zavoláme Gemini
     try:
