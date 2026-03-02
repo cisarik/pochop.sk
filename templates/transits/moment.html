@@ -62,13 +62,14 @@
     const planets = JSON.parse('{{ moment_planets_json|escapejs }}');
     const aspects = JSON.parse('{{ moment_aspects_json|escapejs }}');
     const ai = JSON.parse('{{ moment_ai_json|escapejs }}');
+    const lexikonUrl = "{% url 'transits:lexikon' %}";
     window.PochopMomentWheel.render({
         svgId: 'momentWheel',
         tipId: 'momentWheelTip',
         planets,
         aspects,
         maxAspects: 44,
-        lexikonUrl: "{% url 'transits:lexikon' %}",
+        lexikonUrl,
     });
 
     const score = document.getElementById('momentScore');
@@ -92,8 +93,12 @@
     const aspectsRoot = document.getElementById('momentAspects');
     aspectsRoot.innerHTML = '';
     aspects.slice(0, 12).forEach((a) => {
-        const card = document.createElement('article');
+        const card = document.createElement('a');
         card.className = `moment-aspect moment-aspect--${a.effect}`;
+        const detailUrl = new URL(lexikonUrl, window.location.origin);
+        detailUrl.searchParams.set('transit', `${a.planet1}-${a.aspect}-${a.planet2}`);
+        card.href = detailUrl.toString();
+        card.setAttribute('aria-label', `Otvoriť lexikón: ${a.aspect_name_sk} ${a.planet1_name_sk} - ${a.planet2_name_sk}`);
         card.innerHTML = `
             <div class="moment-aspect-top">
                 <div class="moment-aspect-symbols">${a.planet1_symbol} ${a.aspect_symbol} ${a.planet2_symbol}</div>

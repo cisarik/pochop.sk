@@ -52,12 +52,10 @@
     <footer class="footer">
         <div class="footer-container">
             <p class="footer-main">Pochop &mdash; Astrologická analýza & tranzity pomocou <span class="ai-badge">{{ active_ai_model_badge }}</span></p>
-            {% if request.resolver_match and request.resolver_match.url_name == 'index' %}
             <div class="footer-oss">
                 <span class="footer-oss-label">✶ <strong>Projekt je kompletne open source:</strong></span>
                 <a href="https://github.com/cisarik/pochop.sk" target="_blank" rel="noopener noreferrer" class="nav-moment-link footer-oss-link">github.com/cisarik/pochop.sk</a>
             </div>
-            {% endif %}
         </div>
     </footer>
 
