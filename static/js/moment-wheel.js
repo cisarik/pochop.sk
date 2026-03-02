@@ -1,6 +1,7 @@
 (function () {
     const SIGNS = ['\u2648', '\u2649', '\u264A', '\u264B', '\u264C', '\u264D', '\u264E', '\u264F', '\u2650', '\u2651', '\u2652', '\u2653'];
-    const SIGN_NAMES = ['Baran', 'Byk', 'Blizenci', 'Rak', 'Lev', 'Panna', 'Vahy', 'Skorpion', 'Strelec', 'Kozorozec', 'Vodnar', 'Ryby'];
+    const SIGN_KEYS = ['aries', 'taurus', 'gemini', 'cancer', 'leo', 'virgo', 'libra', 'scorpio', 'sagittarius', 'capricorn', 'aquarius', 'pisces'];
+    const SIGN_NAMES = ['Baran', 'Býk', 'Blíženci', 'Rak', 'Lev', 'Panna', 'Váhy', 'Škorpión', 'Strelec', 'Kozorožec', 'Vodnár', 'Ryby'];
     const SIGN_COLORS = ['#ff6b8f', '#ff9552', '#ffd166', '#7ed0ff', '#f7cd5d', '#92e58f', '#79f0ce', '#58b9ff', '#8d8aff', '#b699ff', '#c58bff', '#ff88d6'];
     function el(name, attrs) {
         const node = document.createElementNS('http://www.w3.org/2000/svg', name);
@@ -124,6 +125,13 @@
             });
             svg.appendChild(signHalo);
             bindTip({ node: signHalo, text: SIGN_NAMES[i], tip, svg });
+            bindLexikonLink({
+                node: signHalo,
+                lexikonUrl,
+                params: {
+                    sign: SIGN_KEYS[i],
+                },
+            });
 
             const signText = el('text', {
                 x: mid.x,
@@ -136,6 +144,13 @@
             signText.textContent = SIGNS[i];
             svg.appendChild(signText);
             bindTip({ node: signText, text: SIGN_NAMES[i], tip, svg });
+            bindLexikonLink({
+                node: signText,
+                lexikonUrl,
+                params: {
+                    sign: SIGN_KEYS[i],
+                },
+            });
         }
 
         const planetByKey = {};

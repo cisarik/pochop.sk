@@ -11,10 +11,39 @@
         </div>
         <h1>Nauč sa čítať planéty, aspekty a tranzity do hĺbky</h1>
         <p>
-            Táto stránka zhromažďuje výklady, ktoré Pochop používa pri tranzitoch. Nájdeš tu význam planét,
-            princípy aspektov aj detailné vysvetlenia kombinácií typu <strong>Mesiac opozícia Mars</strong>.
+            Tento lexikón je tvoja praktická učebnica astrológie v Pochop.sk. Krok za krokom sa naučíš
+            význam znamení zverokruhu, logiku planét a typov aspektov, aby si vedel lepšie čítať vlastnú mapu.
+            Keď zvládneš základy, čaká ťa <strong>Detailný Lexikón Tranzitov</strong> s kompletnými výkladmi
+            kombinácií, ktoré si môžeš priebežne študovať a porovnávať s vlastnou skúsenosťou.
         </p>
     </header>
+
+    <section class="lex-block" id="lex-signs">
+        <h2>Znamenia Zverokruhu</h2>
+        <p class="lex-signs-intro">
+            Každé znamenie je archetyp správania a spôsobu, ako sa energia planét prejavuje v praxi.
+            V natálnej mape ukazuje štýl, nie osud: <strong>ako</strong> konáš, cítiš, myslíš a rastieš.
+        </p>
+        <div class="lex-grid lex-grid--signs">
+            {% for s in zodiac_cards %}
+            <article id="{{ s.id }}" class="lex-card lex-card--sign" style="--sign-color: {{ s.color }};">
+                <div class="lex-sign-top">
+                    <span class="lex-sign-symbol">{{ s.symbol }}</span>
+                    <div>
+                        <h3>{{ s.name }}</h3>
+                        <p class="lex-sign-meta">{{ s.date_range }} · {{ s.element }} · {{ s.modality }}</p>
+                    </div>
+                </div>
+                <p class="lex-keywords">{{ s.keywords|join:", " }}</p>
+                <p class="lex-sign-theme">{{ s.theme }}</p>
+                <p>{{ s.description }}</p>
+                <p class="lex-focus"><strong>Vládca:</strong> {{ s.ruler }}</p>
+                <p class="lex-focus"><strong>Rastová výzva:</strong> {{ s.challenge }}</p>
+                <p class="lex-sign-advice"><strong>Ako s tým pracovať:</strong> {{ s.advice }}</p>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
 
     <section class="lex-block lex-block--guide" id="lex-guide">
         <h2>Ako Čítať Tranzity</h2>

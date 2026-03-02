@@ -70,6 +70,217 @@ ANALYSIS_IN_PROGRESS = set()
 ANALYSIS_LAST_ERROR = {}
 PLANET_ORDER = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune', 'pluto']
 ASPECT_ORDER = ['conjunction', 'sextile', 'square', 'trine', 'opposition']
+ZODIAC_ORDER = [
+    'aries', 'taurus', 'gemini', 'cancer', 'leo', 'virgo',
+    'libra', 'scorpio', 'sagittarius', 'capricorn', 'aquarius', 'pisces',
+]
+
+ZODIAC_LEXICON = {
+    'aries': {
+        'name': 'Baran',
+        'symbol': '♈',
+        'color': '#ff6b8f',
+        'date_range': '21.3. – 19.4.',
+        'element': 'Oheň',
+        'modality': 'Kardinálne',
+        'ruler': 'Mars',
+        'keywords': ['iniciatíva', 'odvaha', 'priamočiarosť'],
+        'theme': 'Archetyp začiatku: energia, ktorá štartuje proces a ide dopredu.',
+        'description': (
+            'Baran prináša rýchlu reakciu, súťaživosť a potrebu konať hneď. '
+            'V psychologickej rovine učí zdravému presadeniu seba a nastavovaniu hraníc.'
+        ),
+        'challenge': 'Netrpezlivosť, impulzívnosť a začínanie bez dokončenia.',
+        'advice': 'Spomaľ pred rozhodnutím a premeň impulz na cieľavedomý krok.',
+    },
+    'taurus': {
+        'name': 'Býk',
+        'symbol': '♉',
+        'color': '#ff9552',
+        'date_range': '20.4. – 20.5.',
+        'element': 'Zem',
+        'modality': 'Pevné',
+        'ruler': 'Venuša',
+        'keywords': ['stabilita', 'hodnoty', 'zmyslovosť'],
+        'theme': 'Archetyp ukotvenia: budovanie istoty, kvality a dlhodobých hodnôt.',
+        'description': (
+            'Býk podporuje vytrvalosť, praktickosť a schopnosť držať smer aj pri tlaku. '
+            'V astrologickej práci zvýrazňuje tému financií, tela a bezpečia.'
+        ),
+        'challenge': 'Rigidita, odpor k zmene a lipnutie na komforte.',
+        'advice': 'Buduj stabilitu, ale vedome si trénuj flexibilitu v malých krokoch.',
+    },
+    'gemini': {
+        'name': 'Blíženci',
+        'symbol': '♊',
+        'color': '#ffd166',
+        'date_range': '21.5. – 20.6.',
+        'element': 'Vzduch',
+        'modality': 'Premenlivé',
+        'ruler': 'Merkúr',
+        'keywords': ['komunikácia', 'zvedavosť', 'prepojenia'],
+        'theme': 'Archetyp mysle: prepájanie informácií, otázok a perspektív.',
+        'description': (
+            'Blíženci prinášajú mentálnu svižnosť, humor a schopnosť rýchlo sa učiť. '
+            'Silno pôsobia v témach písania, rozhovorov, obchodu a sociálnych sietí.'
+        ),
+        'challenge': 'Rozptýlenosť, povrchnosť a informačné preťaženie.',
+        'advice': 'Vyber si prioritu dňa a daj informáciám jasnú štruktúru.',
+    },
+    'cancer': {
+        'name': 'Rak',
+        'symbol': '♋',
+        'color': '#7ed0ff',
+        'date_range': '21.6. – 22.7.',
+        'element': 'Voda',
+        'modality': 'Kardinálne',
+        'ruler': 'Mesiac',
+        'keywords': ['emócie', 'domov', 'ochrana'],
+        'theme': 'Archetyp výživy: citová inteligencia, starostlivosť a bezpečné zázemie.',
+        'description': (
+            'Rak pracuje s pamäťou, rodinnými väzbami a potrebou patriť. '
+            'V horoskope ukazuje, kde sa potrebuješ cítiť prijatý a emocionálne v bezpečí.'
+        ),
+        'challenge': 'Defenzívnosť, precitlivenosť a návrat k starým ranám.',
+        'advice': 'Pomenuj emóciu skôr, než zareaguješ, a komunikuj potreby priamo.',
+    },
+    'leo': {
+        'name': 'Lev',
+        'symbol': '♌',
+        'color': '#f7cd5d',
+        'date_range': '23.7. – 22.8.',
+        'element': 'Oheň',
+        'modality': 'Pevné',
+        'ruler': 'Slnko',
+        'keywords': ['tvorivosť', 'srdce', 'sebavyjadrenie'],
+        'theme': 'Archetyp žiary: vedomé vystúpenie, radosť a autentický prejav.',
+        'description': (
+            'Lev posilňuje charizmu, veľkorysosť a potrebu tvoriť niečo osobné. '
+            'Astrologicky učí zdravej sebadôvere bez potreby neustáleho potvrdenia zvonku.'
+        ),
+        'challenge': 'Dramatizácia, ego-zraniteľnosť a potreba uznania za každú cenu.',
+        'advice': 'Stavaj sebahodnotu na konzistentných činoch, nie na okamžitom aplauze.',
+    },
+    'virgo': {
+        'name': 'Panna',
+        'symbol': '♍',
+        'color': '#92e58f',
+        'date_range': '23.8. – 22.9.',
+        'element': 'Zem',
+        'modality': 'Premenlivé',
+        'ruler': 'Merkúr',
+        'keywords': ['analýza', 'služba', 'zlepšovanie'],
+        'theme': 'Archetyp remesla: precíznosť, systém a praktické riešenia.',
+        'description': (
+            'Panna prináša schopnosť rozlíšiť podstatné od šumu a optimalizovať proces. '
+            'V natívnej i tranzitnej práci súvisí so zdravím, rutinou a kvalitou detailu.'
+        ),
+        'challenge': 'Perfekcionizmus, sebakritika a úzkosť z chýb.',
+        'advice': 'Zameraj sa na progres, nie perfekciu, a meraj výsledok realisticky.',
+    },
+    'libra': {
+        'name': 'Váhy',
+        'symbol': '♎',
+        'color': '#79f0ce',
+        'date_range': '23.9. – 22.10.',
+        'element': 'Vzduch',
+        'modality': 'Kardinálne',
+        'ruler': 'Venuša',
+        'keywords': ['vzťahy', 'rovnováha', 'diplomacia'],
+        'theme': 'Archetyp partnerstva: schopnosť tvoriť férové dohody a harmóniu.',
+        'description': (
+            'Váhy zvýrazňujú estetiku, spoluprácu a sociálnu inteligenciu. '
+            'V horoskope ukazujú, kde sa učíš rovnováhe medzi vlastnými a cudzími potrebami.'
+        ),
+        'challenge': 'Nerozhodnosť, uhýbanie konfliktu a prílišné prispôsobovanie sa.',
+        'advice': 'Rozhoduj sa podľa hodnôt, nie podľa strachu zo straty sympatie.',
+    },
+    'scorpio': {
+        'name': 'Škorpión',
+        'symbol': '♏',
+        'color': '#58b9ff',
+        'date_range': '23.10. – 21.11.',
+        'element': 'Voda',
+        'modality': 'Pevné',
+        'ruler': 'Pluto (tradične Mars)',
+        'keywords': ['intenzita', 'hĺbka', 'transformácia'],
+        'theme': 'Archetyp premeny: odhaľovanie pravdy a práca s vnútornou silou.',
+        'description': (
+            'Škorpión ide pod povrch a vníma skryté motívy, mocenské dynamiky a lojalitu. '
+            'V astrologii súvisí s regeneráciou, psychológiou, dôverou a hranicami.'
+        ),
+        'challenge': 'Kontrola, žiarlivosť, extrémy a emocionálne testovanie.',
+        'advice': 'Premieň potrebu kontroly na vedomú prácu s dôverou a pravdivosťou.',
+    },
+    'sagittarius': {
+        'name': 'Strelec',
+        'symbol': '♐',
+        'color': '#8d8aff',
+        'date_range': '22.11. – 21.12.',
+        'element': 'Oheň',
+        'modality': 'Premenlivé',
+        'ruler': 'Jupiter',
+        'keywords': ['vízia', 'sloboda', 'zmysel'],
+        'theme': 'Archetyp hľadania: rozširovanie obzoru cez skúsenosť a poznanie.',
+        'description': (
+            'Strelec podporuje odvahu myslieť vo veľkom a prepájať život s vyšším významom. '
+            'Silný je v témach cestovania, štúdia, filozofie a osobného rastu.'
+        ),
+        'challenge': 'Prehnané očakávania, netaktnosť a útek od detailu.',
+        'advice': 'K veľkej vízii pridaj konkrétny plán a pravidelnú spätnú väzbu.',
+    },
+    'capricorn': {
+        'name': 'Kozorožec',
+        'symbol': '♑',
+        'color': '#b699ff',
+        'date_range': '22.12. – 19.1.',
+        'element': 'Zem',
+        'modality': 'Kardinálne',
+        'ruler': 'Saturn',
+        'keywords': ['zodpovednosť', 'štruktúra', 'výsledky'],
+        'theme': 'Archetyp staviteľa: disciplína, stratégia a dlhodobý výkon.',
+        'description': (
+            'Kozorožec ukazuje, kde máš prevziať vedenie, povinnosť a trpezlivú prácu. '
+            'V horoskope súvisí s kariérou, autoritou, reputáciou a realistickým plánovaním.'
+        ),
+        'challenge': 'Tvrdosť na seba, pesimizmus a prepracovanie.',
+        'advice': 'Buduj tempo, ktoré je udržateľné, a odmeňuj sa aj za čiastkový progres.',
+    },
+    'aquarius': {
+        'name': 'Vodnár',
+        'symbol': '♒',
+        'color': '#c58bff',
+        'date_range': '20.1. – 18.2.',
+        'element': 'Vzduch',
+        'modality': 'Pevné',
+        'ruler': 'Urán (tradične Saturn)',
+        'keywords': ['originalita', 'sloboda', 'systémová zmena'],
+        'theme': 'Archetyp inovátora: odstup, nové koncepty a budúca perspektíva.',
+        'description': (
+            'Vodnár prináša nekonvenčné myslenie, reformný impulz a orientáciu na komunitu. '
+            'Astrologicky ukazuje, kde sa oslobodzuješ od starých vzorcov.'
+        ),
+        'challenge': 'Citový odstup, vzdor voči autorite a extrémny racionalizmus.',
+        'advice': 'Spájaj originalitu s empatiou, aby zmena bola nielen správna, ale aj prijateľná.',
+    },
+    'pisces': {
+        'name': 'Ryby',
+        'symbol': '♓',
+        'color': '#ff88d6',
+        'date_range': '19.2. – 20.3.',
+        'element': 'Voda',
+        'modality': 'Premenlivé',
+        'ruler': 'Neptún (tradične Jupiter)',
+        'keywords': ['intuícia', 'súcit', 'imaginácia'],
+        'theme': 'Archetyp rozpustenia: citlivosť na jemné signály a hlbokú empatiu.',
+        'description': (
+            'Ryby otvárajú tvorivosť, spiritualitu a schopnosť vnímať medzi riadkami. '
+            'V horoskope ukazujú, kde sa učíš rozlišovať medzi inšpiráciou a ilúziou.'
+        ),
+        'challenge': 'Nejasné hranice, únikové stratégie a preberanie cudzích emócií.',
+        'advice': 'Chráň svoje hranice a uzemňuj intuíciu cez konkrétne denné návyky.',
+    },
+}
 
 PLANET_LEXICON = {
     'sun': {
@@ -409,15 +620,38 @@ def lexikon(request):
             'description': info.get('description', ''),
         })
 
+    zodiac_cards = []
+    for key in ZODIAC_ORDER:
+        info = ZODIAC_LEXICON.get(key, {})
+        zodiac_cards.append({
+            'id': f"sign-{key}",
+            'key': key,
+            'name': info.get('name', key.title()),
+            'symbol': info.get('symbol', ''),
+            'color': info.get('color', '#c8a6ff'),
+            'date_range': info.get('date_range', ''),
+            'element': info.get('element', ''),
+            'modality': info.get('modality', ''),
+            'ruler': info.get('ruler', ''),
+            'keywords': info.get('keywords', []),
+            'theme': info.get('theme', ''),
+            'description': info.get('description', ''),
+            'challenge': info.get('challenge', ''),
+            'advice': info.get('advice', ''),
+        })
+
     focus_target_id = ''
     planet_target = (request.GET.get('planet') or '').strip().lower()
     aspect_target = (request.GET.get('aspect') or '').strip().lower()
+    sign_target = (request.GET.get('sign') or '').strip().lower()
     transit_target = (request.GET.get('transit') or '').strip().lower()
 
     if planet_target in PLANET_NAMES_SK:
         focus_target_id = f"planet-{planet_target}"
     if aspect_target in ASPECT_NAMES_SK:
         focus_target_id = f"aspect-{aspect_target}"
+    if sign_target in ZODIAC_LEXICON:
+        focus_target_id = f"sign-{sign_target}"
     if transit_target:
         parts = transit_target.split('-')
         if len(parts) == 3:
@@ -426,6 +660,7 @@ def lexikon(request):
                 focus_target_id = maybe_id
 
     return render(request, 'transits/lexikon.html', {
+        'zodiac_cards': zodiac_cards,
         'planet_cards': planet_cards,
         'aspect_cards': aspect_cards,
         'transit_groups': transit_groups,
