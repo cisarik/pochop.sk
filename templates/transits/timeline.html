@@ -750,10 +750,10 @@ function buildTransitCard(t, pct, extraClass = '') {
     card.style.borderLeftColor = color;
     card.innerHTML = `
         <div class="dd-card-top">
-            <div class="dd-symbols">
-                <span style="color:${color}">${t.transit_symbol}</span>
-                <span class="dd-aspect">${t.aspect_symbol}</span>
-                <span style="color:${color}">${t.natal_symbol}</span>
+            <div class="dd-symbols dd-symbols--${t.effect}">
+                <span class="dd-symbol-glyph">${t.transit_symbol}</span>
+                <span class="dd-symbol-aspect">${t.aspect_symbol}</span>
+                <span class="dd-symbol-glyph">${t.natal_symbol}</span>
             </div>
             <span class="dd-badge dd-badge--${t.effect}">
                 ${t.effect==='positive'?'pozitívny':t.effect==='negative'?'negatívny':'neutrálny'}

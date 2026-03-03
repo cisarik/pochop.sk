@@ -1899,8 +1899,8 @@ html.starfield-lite .nebula-layer {
     -webkit-backdrop-filter: blur(8px);
     border: 1px solid rgba(255,255,255,0.05);
     border-left: 3px solid var(--accent);
-    border-radius: var(--r-md); padding: 20px;
-    margin-bottom: 12px; cursor: default;
+    border-radius: var(--r-md); padding: 14px 16px;
+    margin-bottom: 8px; cursor: default;
     transition: border-color .2s, transform .2s, background .2s, box-shadow .2s;
 }
 .dd-card:hover {
@@ -1908,9 +1908,22 @@ html.starfield-lite .nebula-layer {
     box-shadow: 0 3px 14px rgba(0,0,0,.22);
 }
 
-.dd-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.dd-symbols { display: flex; align-items: center; gap: 5px; font-size: 1.3rem; }
-.dd-aspect { font-size: .9rem; color: var(--tx-3); }
+.dd-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.dd-symbols { display: flex; align-items: center; gap: 7px; font-size: calc(1.9rem + 3px); line-height: 1; }
+.dd-symbol-glyph,
+.dd-symbol-aspect {
+    display: inline-block;
+    line-height: 1;
+    color: #f7f5ff;
+    text-shadow: 0 1px 3px rgba(0,0,0,.7), 0 0 10px rgba(0,0,0,.42);
+}
+.dd-symbol-aspect {
+    font-size: calc(1.22rem + 3px);
+    opacity: .95;
+}
+.dd-symbols--positive .dd-symbol-glyph { text-shadow: 0 1px 3px rgba(0,0,0,.7), 0 0 14px rgba(16,185,129,.35); }
+.dd-symbols--negative .dd-symbol-glyph { text-shadow: 0 1px 3px rgba(0,0,0,.7), 0 0 14px rgba(239,68,68,.35); }
+.dd-symbols--neutral .dd-symbol-glyph { text-shadow: 0 1px 3px rgba(0,0,0,.7), 0 0 14px rgba(139,92,246,.35); }
 
 .dd-badge {
     padding: 2px 8px; border-radius: 100px; font-size: .65rem;
@@ -1920,9 +1933,9 @@ html.starfield-lite .nebula-layer {
 .dd-badge--negative { background: rgba(239,68,68,.12); color: var(--red); border: 1px solid rgba(239,68,68,.2); }
 .dd-badge--neutral { background: rgba(139,92,246,.12); color: var(--accent); border: 1px solid rgba(139,92,246,.2); }
 
-.dd-title { font-family: var(--font-d); font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+.dd-title { font-family: var(--font-d); font-size: .98rem; font-weight: 600; margin-bottom: 5px; }
 
-.dd-intensity-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.dd-intensity-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .dd-intensity-bar {
     flex: 1; height: 4px; background: rgba(255,255,255,.05);
     border-radius: 100px; overflow: hidden;
@@ -1930,8 +1943,8 @@ html.starfield-lite .nebula-layer {
 .dd-intensity-fill { height: 100%; border-radius: 100px; }
 .dd-intensity-val { font-size: .7rem; color: var(--tx-3); font-weight: 600; min-width: 32px; text-align: right; }
 
-.dd-text { font-size: .88rem; color: var(--tx-2); line-height: 1.6; margin-bottom: 8px; }
-.dd-dates { font-size: .75rem; color: var(--tx-3); }
+.dd-text { font-size: .87rem; color: var(--tx-2); line-height: 1.45; margin-bottom: 4px; }
+.dd-dates { font-size: .73rem; color: var(--tx-3); }
 
 /* ═══ TLDR FOOTER INSIGHT ═══ */
 .timeline-tldr-wrap {
@@ -2032,7 +2045,7 @@ html.starfield-lite .nebula-layer {
 .timeline-lunar-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
 }
 .dd-card--lunar {
     background: rgba(14, 14, 22, 0.62);

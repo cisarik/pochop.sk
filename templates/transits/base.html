@@ -63,14 +63,14 @@
                 </div>
                 <div class="nav-links">
                     {% if user.is_authenticated %}
-                        <a href="{% url 'transits:natal_analysis' %}">Analýza</a>
-                        <a href="{% url 'transits:timeline' %}">Tranzity</a>
-                        <a href="{% url 'transits:password_change' %}">Zmena hesla</a>
+                        <a href="{% url 'transits:natal_analysis' %}" class="nav-moment-link">Analýza</a>
+                        <a href="{% url 'transits:timeline' %}" class="nav-moment-link">Tranzity</a>
+                        <a href="{% url 'transits:password_change' %}" class="nav-moment-link">Zmena hesla</a>
                         <!-- <span class="nav-user">{{ user.username }}</span> -->
-                        <a href="{% url 'transits:logout' %}" class="nav-btn-outline">Odhlásiť</a>
+                        <a href="{% url 'transits:logout' %}" class="nav-moment-link">Odhlásiť</a>
                     {% else %}
                         <a href="{% url 'transits:login' %}" class="nav-moment-link">Prihlásiť</a>
-                        <a href="{% url 'transits:register' %}" class="nav-btn">Registrácia</a>
+                        <a href="{% url 'transits:register' %}" class="nav-moment-link">Registrácia</a>
                     {% endif %}
                 </div>
             </div>
