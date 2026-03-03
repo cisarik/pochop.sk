@@ -1833,17 +1833,15 @@ html.starfield-lite .nebula-layer {
     position: absolute;
     border-radius: 5px;
     border: 1px solid;
-    cursor: pointer;
+    cursor: default;
     transition: filter .15s, box-shadow .15s, transform .12s;
     z-index: 2;
     min-width: 6px;
     overflow: visible;
 }
 .gantt-bar:hover {
-    filter: brightness(1.25);
-    box-shadow: 0 0 14px rgba(139,92,246,0.25);
-    z-index: 5;
-    transform: scaleY(1.15);
+    filter: brightness(1.08);
+    box-shadow: 0 0 8px rgba(139,92,246,0.16);
 }
 
 .gantt-bar-label {
@@ -1902,12 +1900,12 @@ html.starfield-lite .nebula-layer {
     border: 1px solid rgba(255,255,255,0.05);
     border-left: 3px solid var(--accent);
     border-radius: var(--r-md); padding: 20px;
-    margin-bottom: 12px; cursor: pointer;
+    margin-bottom: 12px; cursor: default;
     transition: border-color .2s, transform .2s, background .2s, box-shadow .2s;
 }
 .dd-card:hover {
-    background: rgba(26,26,46,0.7); transform: translateX(4px);
-    box-shadow: 0 4px 20px rgba(0,0,0,.3);
+    background: rgba(26,26,46,0.66);
+    box-shadow: 0 3px 14px rgba(0,0,0,.22);
 }
 
 .dd-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
@@ -1997,6 +1995,47 @@ html.starfield-lite .nebula-layer {
     color: #ffffff;
     font-size: .88rem;
     text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7), 0 4px 14px rgba(0, 0, 0, 0.54);
+}
+.timeline-moon-visual {
+    margin-top: 18px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+.timeline-moon-svg {
+    width: clamp(340px, 58vw, 560px);
+    height: auto;
+    display: block;
+    filter: drop-shadow(0 18px 44px rgba(3, 6, 18, 0.58));
+}
+.timeline-moon-shadow-overlay {
+    fill: #04060d;
+    opacity: .82;
+}
+.timeline-moon-glow {
+    fill: rgba(236, 244, 255, 0.18);
+    mix-blend-mode: screen;
+    pointer-events: none;
+}
+.timeline-lunar-transits {
+    display: none;
+    margin-top: 14px;
+}
+.timeline-lunar-title {
+    margin: 0 0 10px;
+    font-family: var(--font-d);
+    font-size: .9rem;
+    font-weight: 700;
+    color: rgba(235, 227, 255, 0.94);
+    letter-spacing: .02em;
+}
+.timeline-lunar-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.dd-card--lunar {
+    background: rgba(14, 14, 22, 0.62);
 }
 
 /* ═══ MODAL ═══ */
@@ -2234,6 +2273,7 @@ html.starfield-lite .nebula-layer {
     .timeline-tldr-panel { padding: 15px 14px 14px; }
     .timeline-tldr-text { font-size: .92rem; line-height: 1.65; }
     .timeline-moon-value { font-size: .84rem; }
+    .timeline-moon-svg { width: min(96vw, 480px); }
     .gantt-bar-label { font-size: 1.4rem; }
     .footer-container {
         flex-direction: column;

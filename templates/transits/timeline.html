@@ -132,33 +132,64 @@
             <span class="timeline-moon-value" id="timelineMoonPhase"></span>
         </div>
     </div>
+    <div class="timeline-moon-visual">
+        <svg
+            class="timeline-moon-svg"
+            viewBox="0 0 420 420"
+            role="img"
+            aria-labelledby="timelineMoonVisualTitle"
+        >
+            <title id="timelineMoonVisualTitle">Fáza Mesiaca</title>
+            <defs>
+                <clipPath id="tlMoonClip">
+                    <circle cx="210" cy="210" r="150" />
+                </clipPath>
+                <filter id="tlMoonGlowFilter" x="-40%" y="-40%" width="180%" height="180%">
+                    <feGaussianBlur stdDeviation="9" result="blur" />
+                    <feColorMatrix
+                        in="blur"
+                        type="matrix"
+                        values="
+                            1 0 0 0 0
+                            0 1 0 0 0
+                            0 0 1 0 0
+                            0 0 0 0.32 0
+                        "
+                    />
+                </filter>
+                <mask id="tlMoonShadowMask">
+                    <rect x="0" y="0" width="420" height="420" fill="black" />
+                    <circle id="timelineMoonShadow" cx="210" cy="210" r="150" fill="white" />
+                </mask>
+            </defs>
+
+            <g clip-path="url(#tlMoonClip)">
+                <image
+                    href="{% static 'jpg/mesiac.jpg' %}"
+                    x="22"
+                    y="22"
+                    width="376"
+                    height="376"
+                    preserveAspectRatio="xMidYMid slice"
+                />
+                <rect
+                    class="timeline-moon-shadow-overlay"
+                    x="0"
+                    y="0"
+                    width="420"
+                    height="420"
+                    mask="url(#tlMoonShadowMask)"
+                />
+            </g>
+            <circle class="timeline-moon-glow" cx="210" cy="210" r="150" filter="url(#tlMoonGlowFilter)" />
+        </svg>
+    </div>
+    <div class="timeline-lunar-transits" id="timelineLunarTransits">
+        <h4 class="timeline-lunar-title">Lunárne tranzity</h4>
+        <div class="timeline-lunar-list" id="timelineLunarList"></div>
+    </div>
 </section>
 
-<!-- Transit detail modal -->
-<div class="modal-overlay" id="modalOverlay">
-    <div class="modal" id="transitModal">
-        <button class="modal-close" id="modalClose">&times;</button>
-        <div class="modal-header" id="modalHeader">
-            <div class="modal-symbols" id="modalSymbols"></div>
-            <h2 class="modal-title" id="modalTitle"></h2>
-            <div class="modal-dates" id="modalDates"></div>
-            <div class="modal-orb" id="modalOrb"></div>
-        </div>
-        <div class="modal-gradient-bar" id="modalGradientBar">
-            <div class="gradient-marker" id="gradientMarker"></div>
-            <div class="gradient-labels">
-                <span id="gradStart"></span>
-                <span id="gradEnd"></span>
-            </div>
-        </div>
-        <div class="modal-body">
-            <p class="modal-text" id="modalText"></p>
-        </div>
-        <div class="modal-footer">
-            <div class="modal-effect" id="modalEffect"></div>
-        </div>
-    </div>
-</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -178,6 +209,7 @@ START.setHours(0,0,0,0);
 const COLORS = { positive:'#10b981', negative:'#ef4444', neutral:'#8b5cf6' };
 const SK_DAYS = ['Ne','Po','Ut','St','Št','Pi','So'];
 const SK_MONTHS = ['jan','feb','mar','apr','máj','jún','júl','aug','sep','okt','nov','dec'];
+const MOON_TRANSIT_REGEX = /mesiac/i;
 const SYNODIC_MONTH_DAYS = 29.53058867;
 const KNOWN_NEW_MOON_UTC_MS = Date.UTC(2000, 0, 6, 18, 14, 0);
 const MOON_PHASE_BANDS = [
@@ -209,8 +241,8 @@ function getMoonPhaseInfo(targetDate) {
     const band = MOON_PHASE_BANDS.find((item) => lunarAge < item.maxAge) || MOON_PHASE_BANDS[0];
     return {
         label: band.label,
-        emoji: band.emoji,
         illumination,
+        phaseFraction: lunarAge / SYNODIC_MONTH_DAYS,
     };
 }
 
@@ -375,7 +407,6 @@ sorted.forEach((t, idx) => {
     lbl.style.left = Math.max(4, Math.min(labelX, bW - 4)) + 'px';
     bar.appendChild(lbl);
 
-    bar.addEventListener('click', (e) => { e.stopPropagation(); openModal(t); });
     canvas.appendChild(bar);
 });
 
@@ -656,6 +687,7 @@ function updateDayDetail(dayIdx) {
 
     if (active.length === 0) {
         list.innerHTML = '<div class="dd-empty">Žiadne aktívne tranzity v tento deň</div>';
+        updateLunarTransits([], null);
         return active;
     }
 
@@ -666,45 +698,99 @@ function updateDayDetail(dayIdx) {
         return Math.abs(midDate-ae) - Math.abs(midDate-be);
     });
 
-    active.forEach(t => {
-        const color = COLORS[t.effect] || COLORS.neutral;
-        const mid = midDate;
-        const exact = t.exact_date_iso ? new Date(t.exact_date_iso) :
-            new Date((new Date(t.start_date_iso).getTime()+new Date(t.end_date_iso).getTime())/2);
-        const span = new Date(t.end_date_iso) - new Date(t.start_date_iso);
-        const dist = Math.abs(mid - exact);
-        const half = span / 2;
-        const pct = half > 0 ? Math.max(0, Math.round((1 - dist/half)*100)) : 100;
-
-        const card = document.createElement('div');
-        card.className = 'dd-card';
-        card.style.borderLeftColor = color;
-        card.innerHTML = `
-            <div class="dd-card-top">
-                <div class="dd-symbols">
-                    <span style="color:${color}">${t.transit_symbol}</span>
-                    <span class="dd-aspect">${t.aspect_symbol}</span>
-                    <span style="color:${color}">${t.natal_symbol}</span>
-                </div>
-                <span class="dd-badge dd-badge--${t.effect}">
-                    ${t.effect==='positive'?'pozitívny':t.effect==='negative'?'negatívny':'neutrálny'}
-                </span>
-            </div>
-            <h3 class="dd-title">${t.title}</h3>
-            <div class="dd-intensity-row">
-                <div class="dd-intensity-bar">
-                    <div class="dd-intensity-fill" style="width:${pct}%;background:linear-gradient(90deg,transparent,${color},transparent);"></div>
-                </div>
-                <span class="dd-intensity-val">${pct}%</span>
-            </div>
-            <p class="dd-text">${t.text}</p>
-            <div class="dd-dates">${t.start_date} — ${t.end_date}${t.exact_date ? ` · presný: ${t.exact_date}` : ''}</div>
-        `;
-        card.addEventListener('click', () => openModal(t));
-        list.appendChild(card);
+    const lunarTransits = [];
+    const regularTransits = [];
+    active.forEach((t) => {
+        if (isMoonTransit(t)) {
+            lunarTransits.push(t);
+        } else {
+            regularTransits.push(t);
+        }
     });
 
+    if (!regularTransits.length) {
+        list.innerHTML = '<div class="dd-empty">Dnes sú aktívne len lunárne tranzity (nižšie pod Mesiacom).</div>';
+    } else {
+        regularTransits.forEach((t) => {
+            const pct = getTransitIntensityPct(t, midDate);
+            list.appendChild(buildTransitCard(t, pct));
+        });
+    }
+
+    updateLunarTransits(lunarTransits, midDate);
+
     return active;
+}
+
+function isMoonTransit(t) {
+    if (!t) {
+        return false;
+    }
+    if (t.transit_planet === 'moon' || t.natal_planet === 'moon') {
+        return true;
+    }
+    const haystack = `${t.title || ''} ${t.text || ''}`;
+    return MOON_TRANSIT_REGEX.test(haystack);
+}
+
+function getTransitIntensityPct(t, midDate) {
+    const exact = t.exact_date_iso
+        ? new Date(t.exact_date_iso)
+        : new Date((new Date(t.start_date_iso).getTime() + new Date(t.end_date_iso).getTime()) / 2);
+    const span = new Date(t.end_date_iso) - new Date(t.start_date_iso);
+    const dist = Math.abs(midDate - exact);
+    const half = span / 2;
+    return half > 0 ? Math.max(0, Math.round((1 - dist / half) * 100)) : 100;
+}
+
+function buildTransitCard(t, pct, extraClass = '') {
+    const color = COLORS[t.effect] || COLORS.neutral;
+    const card = document.createElement('div');
+    card.className = `dd-card${extraClass ? ` ${extraClass}` : ''}`;
+    card.style.borderLeftColor = color;
+    card.innerHTML = `
+        <div class="dd-card-top">
+            <div class="dd-symbols">
+                <span style="color:${color}">${t.transit_symbol}</span>
+                <span class="dd-aspect">${t.aspect_symbol}</span>
+                <span style="color:${color}">${t.natal_symbol}</span>
+            </div>
+            <span class="dd-badge dd-badge--${t.effect}">
+                ${t.effect==='positive'?'pozitívny':t.effect==='negative'?'negatívny':'neutrálny'}
+            </span>
+        </div>
+        <h3 class="dd-title">${t.title}</h3>
+        <div class="dd-intensity-row">
+            <div class="dd-intensity-bar">
+                <div class="dd-intensity-fill" style="width:${pct}%;background:linear-gradient(90deg,transparent,${color},transparent);"></div>
+            </div>
+            <span class="dd-intensity-val">${pct}%</span>
+        </div>
+        <p class="dd-text">${t.text}</p>
+        <div class="dd-dates">${t.start_date} — ${t.end_date}${t.exact_date ? ` · presný: ${t.exact_date}` : ''}</div>
+    `;
+    return card;
+}
+
+function updateLunarTransits(transits, midDate) {
+    const wrap = document.getElementById('timelineLunarTransits');
+    const list = document.getElementById('timelineLunarList');
+    if (!wrap || !list) {
+        return;
+    }
+
+    list.innerHTML = '';
+
+    if (!Array.isArray(transits) || !transits.length || !midDate) {
+        wrap.style.display = 'none';
+        return;
+    }
+
+    wrap.style.display = '';
+    transits.forEach((t) => {
+        const pct = getTransitIntensityPct(t, midDate);
+        list.appendChild(buildTransitCard(t, pct, 'dd-card--lunar'));
+    });
 }
 
 function normalizeTransitSentence(text) {
@@ -719,15 +805,10 @@ function buildTldrText(activeTransits) {
     if (!Array.isArray(activeTransits) || activeTransits.length === 0) {
         return 'Dnes nemáš aktívne tranzity s výrazným textovým výkladom.';
     }
-
-    const sortedByIntensity = [...activeTransits].sort(
-        (a, b) => Number(b.intensity || 0) - Number(a.intensity || 0),
-    );
-
-    const picked = [];
     const seen = new Set();
+    const merged = [];
 
-    for (const transit of sortedByIntensity) {
+    for (const transit of activeTransits) {
         const sentence = normalizeTransitSentence(transit.text);
         if (!sentence) {
             continue;
@@ -736,21 +817,14 @@ function buildTldrText(activeTransits) {
             continue;
         }
         seen.add(sentence);
-        picked.push(sentence);
-        if (picked.length >= 3) {
-            break;
-        }
+        merged.push(sentence);
     }
 
-    if (!picked.length) {
+    if (!merged.length) {
         return 'Dnes nemáš aktívne tranzity s výrazným textovým výkladom.';
     }
 
-    let tldr = picked.join(' ');
-    if (activeTransits.length > picked.length) {
-        tldr += ' ...';
-    }
-    return tldr;
+    return merged.join(' ');
 }
 
 function updateTimelineTldr(dayIdx, activeTransits) {
@@ -765,45 +839,38 @@ function updateTimelineTldr(dayIdx, activeTransits) {
     const dayDate = getDayDate(dayIdx);
     dayDate.setHours(12, 0, 0, 0);
     const phase = getMoonPhaseInfo(dayDate);
-    moonEl.textContent = `${phase.emoji} ${phase.label} · ${phase.illumination}% osvetlenie`;
+    moonEl.textContent = `${phase.label} · ${phase.illumination}% osvetlenie`;
+    updateMoonVisual(phase);
+}
+
+function updateMoonVisual(phaseInfo) {
+    const shadow = document.getElementById('timelineMoonShadow');
+    const title = document.getElementById('timelineMoonVisualTitle');
+    if (!shadow || !phaseInfo) {
+        return;
+    }
+
+    const centerX = 210;
+    const radius = 150;
+    const p = Math.max(0, Math.min(1, Number(phaseInfo.phaseFraction || 0)));
+    let shadowX = centerX;
+
+    if (p <= 0.5) {
+        const grow = p / 0.5;
+        shadowX = centerX - (2 * radius * grow);
+    } else {
+        const decay = (p - 0.5) / 0.5;
+        shadowX = centerX + (2 * radius * (1 - decay));
+    }
+
+    shadow.setAttribute('cx', shadowX.toFixed(2));
+
+    if (title) {
+        title.textContent = `Fáza Mesiaca: ${phaseInfo.label}, ${phaseInfo.illumination}% osvetlenie`;
+    }
 }
 
 selectDay(0);
-
-// ───── Modal ─────
-const modalOverlay = document.getElementById('modalOverlay');
-function openModal(t) {
-    const color = COLORS[t.effect] || COLORS.neutral;
-    const lbl = t.effect==='positive'?'Pozitívny vplyv':t.effect==='negative'?'Negatívny vplyv':'Neutrálny vplyv';
-
-    document.getElementById('modalSymbols').innerHTML = `
-        <span class="modal-symbol" style="color:${color}">${t.transit_symbol}</span>
-        <span class="modal-aspect-symbol">${t.aspect_symbol}</span>
-        <span class="modal-symbol" style="color:${color}">${t.natal_symbol}</span>`;
-    document.getElementById('modalTitle').textContent = t.title;
-    document.getElementById('modalDates').innerHTML =
-        `Aktívny: ${t.start_date} — ${t.end_date}` + (t.exact_date ? `<br>Presný aspekt: ${t.exact_date}` : '');
-    document.getElementById('modalOrb').innerHTML =
-        `orbis: ${t.orb}°, pôsobenie: <span style="color:${color};font-weight:600">${lbl.toLowerCase()}</span>`;
-
-    const bar = document.getElementById('modalGradientBar');
-    bar.style.background = `linear-gradient(to right, rgba(255,255,255,0.08), ${color}, rgba(255,255,255,0.08))`;
-    const now = new Date(), s = new Date(t.start_date_iso), e = new Date(t.end_date_iso);
-    let pct = ((now-s)/(e-s))*100;
-    document.getElementById('gradientMarker').style.left = Math.max(2,Math.min(98,pct)) + '%';
-    document.getElementById('gradStart').textContent = t.start_date.split(' ')[0];
-    document.getElementById('gradEnd').textContent = t.end_date.split(' ')[0];
-    document.getElementById('modalHeader').className = 'modal-header modal-header--' + t.effect;
-    document.getElementById('modalText').textContent = t.text;
-    document.getElementById('modalEffect').innerHTML = `<span class="effect-dot" style="background:${color}"></span> ${lbl}`;
-
-    modalOverlay.classList.add('active');
-    document.body.style.overflow = 'hidden';
-}
-function closeModal() { modalOverlay.classList.remove('active'); document.body.style.overflow = ''; }
-document.getElementById('modalClose').addEventListener('click', closeModal);
-modalOverlay.addEventListener('click', e => { if (e.target === modalOverlay) closeModal(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 // ───── Drag scroll & mouse wheel horizontálne ─────
 (function() {
@@ -813,8 +880,8 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
     let scrollStart = 0;
 
     el.addEventListener('mousedown', e => {
-        // Ignoruj ak klikol na button (day cell) alebo bar
-        if (e.target.closest('.gantt-day-cell') || e.target.closest('.gantt-bar')) return;
+        // Ignoruj len klik na day-cell, aby day select ostal funkčný
+        if (e.target.closest('.gantt-day-cell')) return;
         isDragging = true;
         startX = e.clientX;
         scrollStart = el.scrollLeft;

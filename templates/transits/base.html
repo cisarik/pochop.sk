@@ -20,11 +20,11 @@
         <div class="nav-container">
             <div class="nav-brand-wrap">
                 <a href="{% url 'transits:index' %}" class="nav-logo">
-                    <span class="logo-pochop">Pochop.sk</span>
+                    <span class="logo-pochop">⧂&nbsp;Pochop.sk</span>
                 </a>
             </div>
             <div class="nav-tagline-wrap">
-                <p class="nav-tagline">Pochop sám seba pomocou astrológie a <span class="nav-tagline-ai">AI</span></p>
+                <p class="nav-tagline">Pochop sám seba pomocou astrológie a <span class="nav-tagline-ai"><b>AI</b></span></p>
                 <div class="nav-ai nav-ai--tagline" data-ai-dropdown data-ai-switch-url="{% url 'transits:api_select_ai_model' %}">
                     <button type="button" class="nav-ai-trigger" aria-label="Aktívny AI model" aria-expanded="false" aria-controls="nav-ai-dropdown-panel">
                         <span class="nav-ai-trigger-model">{{ active_ai_model_badge }}</span>
