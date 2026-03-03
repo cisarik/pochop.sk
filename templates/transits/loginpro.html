@@ -1,0 +1,27 @@
+{% extends "transits/base.html" %}
+{% load static %}
+
+{% block title %}Pro účet - Pochop{% endblock %}
+
+{% block content %}
+<section class="hero" style="padding: 40px 20px 24px;">
+    <div class="hero-bg"><div class="stars"></div><div class="stars2"></div></div>
+    <div class="hero-content">
+        <h1 class="hero-title" style="font-size: clamp(1.4rem,4vw,2.2rem);">Pro účet</h1>
+    </div>
+</section>
+
+<section class="form-section">
+    <div class="form-card" style="text-align: center;">
+        <p style="margin-bottom: 10px; font-weight: 700;">Momentálne nie je možné registrovať Pro účty.</p>
+        <p style="margin-bottom: 22px; opacity: 0.9;">Pracujeme na sprístupnení Pro funkcií. Ďakujeme za pochopenie.</p>
+
+        <a href="{% url 'transits:register' %}" class="btn-primary" style="display: block; text-decoration: none; margin-bottom: 12px;">
+            Vytvoriť bežný účet
+        </a>
+        <a href="{% url 'transits:login' %}" class="btn-outline" style="display: block; text-decoration: none;">
+            Prihlásiť sa
+        </a>
+    </div>
+</section>
+{% endblock %}

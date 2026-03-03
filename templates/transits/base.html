@@ -23,7 +23,39 @@
                     <span class="logo-pochop">Pochop.sk</span>
                 </a>
             </div>
-            <p class="nav-tagline">Pochop sám seba pomocou astrológie a <span class="nav-tagline-ai">AI</span></p>
+            <div class="nav-tagline-wrap">
+                <p class="nav-tagline">Pochop sám seba pomocou astrológie a <span class="nav-tagline-ai">AI</span></p>
+                <div class="nav-ai nav-ai--tagline" data-ai-dropdown data-ai-switch-url="{% url 'transits:api_select_ai_model' %}">
+                    <button type="button" class="nav-ai-trigger" aria-label="Aktívny AI model" aria-expanded="false" aria-controls="nav-ai-dropdown-panel">
+                        <span class="nav-ai-trigger-model">{{ active_ai_model_badge }}</span>
+                        <span class="nav-ai-trigger-arrow" aria-hidden="true">▾</span>
+                    </button>
+                    <div class="nav-ai-dropdown" id="nav-ai-dropdown-panel">
+                        <!-- <p class="nav-ai-dropdown-active">{{ active_ai_model_badge }}</p> -->
+                        <ul class="nav-ai-list" role="list">
+                            {% for ai_item in ai_dropdown_options %}
+                                <li class="nav-ai-list-item">
+                                    {% if can_switch_ai_model %}
+                                        <button type="button" class="nav-ai-item" style="--stagger: {{ forloop.counter0 }};" data-ai-model-option data-model-ref="{{ ai_item.model_ref }}">
+                                            <span class="nav-ai-item-label">{{ ai_item.label }}</span>
+                                            <span class="nav-ai-item-runtime">{{ ai_item.provider_label }} · {{ ai_item.model }}</span>
+                                        </button>
+                                    {% else %}
+                                        <span class="nav-ai-item-runtime"><i>Pro</i> účet je potrebný pre zmenu modelu</span>
+                                    {% endif %}
+                                </li>
+                            {% empty %}
+                                <li class="nav-ai-list-item">
+                                    <div class="nav-ai-item nav-ai-item--empty" style="--stagger: 0;">
+                                        <span class="nav-ai-item-runtime">Žiadne ďalšie modely nie sú dostupné.</span>
+                                    </div>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                        <p class="nav-ai-switch-status" data-ai-switch-status aria-live="polite"></p>
+                    </div>
+                </div>
+            </div>
             <div class="nav-right">
                 <div class="nav-moment">
                     <a href="{% url 'transits:lexikon' %}" class="nav-moment-link">Lexikón</a>
@@ -61,5 +93,6 @@
 
     {% block extra_js %}{% endblock %}
     <script src="{% static 'js/starfield.js' %}"></script>
+    <script src="{% static 'js/nav-ai-dropdown.js' %}"></script>
 </body>
 </html>

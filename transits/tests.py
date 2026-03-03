@@ -2,7 +2,7 @@ import json
 import os
 import re
 from types import SimpleNamespace
-from datetime import date, time
+from datetime import date, time, datetime, timedelta
 from django.core import mail
 from io import StringIO
 from unittest.mock import MagicMock, patch
@@ -16,10 +16,19 @@ from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
+from django.utils import timezone
 
 from .engine import calculate_natal_chart, calculate_natal_positions, get_timezone_for_location
 from .gemini_utils import generate_ai_text, parse_json_payload
-from .models import GeminiConfig, MomentReport, NatalProfile
+from .models import (
+    AIDayReportCache,
+    AIDayReportDailyStat,
+    AIModelOption,
+    AIResponseCache,
+    GeminiConfig,
+    MomentReport,
+    NatalProfile,
+)
 from .security import derive_user_key_b64
 
 
@@ -62,6 +71,307 @@ class IndexSecurityUxTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Aktuálne planetárne usporiadanie')
         self.assertContains(response, 'landingMomentWheel')
+
+
+class AIModelSwitchApiTests(TestCase):
+    def setUp(self):
+        self.staff = User.objects.create_user(
+            username='staff_user',
+            email='staff@example.com',
+            password='StrongPass123!',
+            is_staff=True,
+            is_superuser=True,
+        )
+        self.user = User.objects.create_user(
+            username='regular_user',
+            email='regular@example.com',
+            password='StrongPass123!',
+        )
+        AIModelOption.objects.update_or_create(
+            model_ref='openai:gpt-5.2',
+            defaults={'label': 'GPT-5.2', 'sort_order': 10, 'is_enabled': True},
+        )
+        AIModelOption.objects.update_or_create(
+            model_ref='gemini:gemini-2.5-pro',
+            defaults={'label': 'Gemini Pro 2.5', 'sort_order': 20, 'is_enabled': True},
+        )
+        GeminiConfig.objects.update_or_create(
+            id=1,
+            defaults={'default_model': 'openai:gpt-5.2', 'max_calls_daily': 500},
+        )
+
+    def test_requires_staff_or_pro_permissions(self):
+        client = Client(HTTP_HOST='pochop.sk')
+        client.force_login(self.user)
+        response = client.post(
+            reverse('transits:api_select_ai_model'),
+            data=json.dumps({'model_ref': 'gemini:gemini-2.5-pro'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 403)
+
+    @patch('transits.views.get_or_generate_moment_report')
+    @patch('transits.views._generate_and_save_analyses')
+    @patch('transits.views.generate_ai_text')
+    @patch('transits.views.has_ai_key')
+    def test_pro_user_can_switch_model(
+        self,
+        has_ai_key_mock,
+        generate_ai_text_mock,
+        generate_analyses_mock,
+        moment_report_mock,
+    ):
+        has_ai_key_mock.return_value = True
+        generate_ai_text_mock.return_value = 'OK'
+        generate_analyses_mock.return_value = True
+        moment_report_mock.return_value = SimpleNamespace(report_date=date(2026, 3, 3))
+
+        pro_user = User.objects.create_user(
+            username='pro_user',
+            email='pro@example.com',
+            password='StrongPass123!',
+        )
+        NatalProfile.objects.create(user=pro_user, name='Pro User', is_pro=True)
+
+        client = Client(HTTP_HOST='pochop.sk')
+        client.force_login(pro_user)
+        response = client.post(
+            reverse('transits:api_select_ai_model'),
+            data=json.dumps({'model_ref': 'gemini:gemini-2.5-pro'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content.decode('utf-8'))
+        self.assertTrue(payload.get('ok'))
+        self.assertIn('2.5', payload.get('active_badge', ''))
+        self.assertEqual(payload.get('users_refresh_mode'), 'lazy')
+        cfg = GeminiConfig.objects.get()
+        self.assertEqual(cfg.default_model, 'gemini:gemini-2.5-pro')
+        self.assertEqual(generate_analyses_mock.call_count, 0)
+
+    @patch('transits.views.get_or_generate_moment_report')
+    @patch('transits.views._generate_and_save_analyses')
+    @patch('transits.views.generate_ai_text')
+    @patch('transits.views.has_ai_key')
+    def test_switch_updates_runtime_model(
+        self,
+        has_ai_key_mock,
+        generate_ai_text_mock,
+        generate_analyses_mock,
+        moment_report_mock,
+    ):
+        has_ai_key_mock.return_value = True
+        generate_ai_text_mock.return_value = 'OK'
+        generate_analyses_mock.return_value = True
+        moment_report_mock.return_value = SimpleNamespace(report_date=date(2026, 3, 3))
+
+        p1 = NatalProfile.objects.create(
+            name='A',
+            natal_analysis_json=[{'id': 'sun'}],
+            natal_aspects_json=[{'header': 'A'}],
+        )
+        p2 = NatalProfile.objects.create(
+            name='B',
+            natal_analysis_json=[{'id': 'moon'}],
+            natal_aspects_json=[{'header': 'B'}],
+        )
+
+        client = Client(HTTP_HOST='pochop.sk')
+        client.force_login(self.staff)
+        response = client.post(
+            reverse('transits:api_select_ai_model'),
+            data=json.dumps({'model_ref': 'gemini:gemini-2.5-pro'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content.decode('utf-8'))
+        self.assertTrue(payload.get('ok'))
+        self.assertIn('2.5', payload.get('active_badge', ''))
+        self.assertEqual(payload.get('users_refresh_mode'), 'lazy')
+        self.assertEqual(payload.get('users_marked'), 2)
+
+        cfg = GeminiConfig.objects.get()
+        self.assertEqual(cfg.default_model, 'gemini:gemini-2.5-pro')
+        self.assertEqual(generate_analyses_mock.call_count, 0)
+
+        p1.refresh_from_db(fields=['natal_analysis_json', 'natal_aspects_json'])
+        p2.refresh_from_db(fields=['natal_analysis_json', 'natal_aspects_json'])
+        self.assertIsNone(p1.natal_analysis_json)
+        self.assertIsNone(p1.natal_aspects_json)
+        self.assertIsNone(p2.natal_analysis_json)
+        self.assertIsNone(p2.natal_aspects_json)
+
+
+class AIDayReportApiTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='timeline_user',
+            email='timeline@example.com',
+            password='StrongPass123!',
+        )
+        self.profile = NatalProfile.objects.create(
+            user=self.user,
+            name='Timeline User',
+            gender='male',
+        )
+        GeminiConfig.objects.update_or_create(
+            id=1,
+            defaults={'default_model': 'openai:gpt-5.2', 'max_calls_daily': 500},
+        )
+        self.client = Client(HTTP_HOST='pochop.sk')
+        self.client.force_login(self.user)
+
+    def _active_transits_today(self):
+        start_dt = datetime.combine(date.today(), time(0, 0))
+        end_dt = datetime.combine(date.today(), time(23, 59))
+        return [
+            {
+                'title': 'Mesiac trigón Slnko',
+                'effect': 'positive',
+                'orb': 0.7,
+                'orb_limit': 2.0,
+                'intensity': 0.82,
+                'text': 'Silná podpora pre tvorivosť a komunikáciu.',
+                'start_date_iso': start_dt.isoformat(),
+                'end_date_iso': end_dt.isoformat(),
+            }
+        ]
+
+    @patch('transits.views._has_gemini_key')
+    @patch('transits.views._compute_transits_for_profile')
+    @patch('transits.views.generate_gemini_text')
+    def test_ai_day_report_returns_model_and_generated_time(
+        self,
+        generate_ai_text_mock,
+        compute_transits_mock,
+        has_key_mock,
+    ):
+        has_key_mock.return_value = True
+        compute_transits_mock.return_value = self._active_transits_today()
+        generate_ai_text_mock.return_value = json.dumps({
+            'rating': 8,
+            'energy': 'Silný mentálny focus a praktický drive.',
+            'focus': ['Dokonči najdôležitejšiu úlohu.', 'Komunikuj vecne.', 'Drž rytmus.'],
+            'avoid': ['Nehovor v afekte.', 'Nerob multitasking.', 'Neodkladaj priority.'],
+        })
+
+        response = self.client.post(
+            reverse('transits:ai_day_report'),
+            data=json.dumps({'profile_id': self.profile.pk, 'day_offset': 0}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content.decode('utf-8'))
+
+        self.assertEqual(payload.get('rating'), 8)
+        self.assertEqual(payload.get('ai_model_ref'), 'openai:gpt-5.2')
+        self.assertIn('OpenAI', payload.get('ai_model_badge', ''))
+        self.assertTrue(payload.get('generated_at_display'))
+        self.assertFalse(payload.get('cache_hit'))
+        self.assertEqual(AIDayReportCache.objects.count(), 1)
+
+        stat = AIDayReportDailyStat.objects.get(stat_date=date.today(), model_ref='openai:gpt-5.2')
+        self.assertEqual(stat.total_requests, 1)
+        self.assertEqual(stat.cache_hits, 0)
+        self.assertEqual(stat.generated_reports, 1)
+        self.assertEqual(stat.fallback_reports, 0)
+        self.assertEqual(stat.errors_count, 0)
+
+    @patch('transits.views._has_gemini_key')
+    @patch('transits.views._compute_transits_for_profile')
+    @patch('transits.views.generate_gemini_text')
+    def test_ai_day_report_uses_db_cache_on_repeated_request(
+        self,
+        generate_ai_text_mock,
+        compute_transits_mock,
+        has_key_mock,
+    ):
+        has_key_mock.return_value = True
+        compute_transits_mock.return_value = self._active_transits_today()
+        generate_ai_text_mock.return_value = json.dumps({
+            'rating': 7,
+            'energy': 'Stabilný deň so silným praktickým potenciálom.',
+            'focus': ['Prioritizuj úlohy.', 'Drž tempo.', 'Pýtaj sa presne.'],
+            'avoid': ['Náhlivé reakcie.', 'Zbytočný chaos.', 'Nedotiahnuté záväzky.'],
+        })
+
+        url = reverse('transits:ai_day_report')
+        body = json.dumps({'profile_id': self.profile.pk, 'day_offset': 0})
+        first = self.client.post(url, data=body, content_type='application/json')
+        second = self.client.post(url, data=body, content_type='application/json')
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        first_payload = json.loads(first.content.decode('utf-8'))
+        second_payload = json.loads(second.content.decode('utf-8'))
+
+        self.assertFalse(first_payload.get('cache_hit'))
+        self.assertTrue(second_payload.get('cache_hit'))
+        self.assertEqual(generate_ai_text_mock.call_count, 1)
+
+        stat = AIDayReportDailyStat.objects.get(stat_date=date.today(), model_ref='openai:gpt-5.2')
+        self.assertEqual(stat.total_requests, 2)
+        self.assertEqual(stat.cache_hits, 1)
+        self.assertEqual(stat.generated_reports, 1)
+        self.assertEqual(stat.fallback_reports, 0)
+        self.assertEqual(stat.errors_count, 0)
+
+    @patch('transits.views._has_gemini_key')
+    @patch('transits.views._compute_transits_for_profile')
+    @patch('transits.views.generate_gemini_text')
+    def test_ai_day_report_cache_expires_at_next_midnight(
+        self,
+        generate_ai_text_mock,
+        compute_transits_mock,
+        has_key_mock,
+    ):
+        has_key_mock.return_value = True
+        compute_transits_mock.return_value = self._active_transits_today()
+        generate_ai_text_mock.return_value = json.dumps({
+            'rating': 6,
+            'energy': 'Stabilný deň.',
+            'focus': ['A', 'B', 'C'],
+            'avoid': ['D', 'E', 'F'],
+        })
+
+        response = self.client.post(
+            reverse('transits:ai_day_report'),
+            data=json.dumps({'profile_id': self.profile.pk, 'day_offset': 0}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+
+        row = AIDayReportCache.objects.get()
+        expires_local = timezone.localtime(row.expires_at)
+        self.assertEqual(expires_local.hour, 0)
+        self.assertEqual(expires_local.minute, 0)
+        self.assertEqual(expires_local.second, 0)
+        self.assertGreater(row.expires_at, timezone.now())
+
+    @patch('transits.views._has_gemini_key')
+    def test_ai_day_report_forbidden_for_foreign_profile(self, has_key_mock):
+        has_key_mock.return_value = True
+        other_user = User.objects.create_user(
+            username='other_user',
+            email='other@example.com',
+            password='StrongPass123!',
+        )
+        other_profile = NatalProfile.objects.create(
+            user=other_user,
+            name='Other',
+            gender='female',
+        )
+
+        response = self.client.post(
+            reverse('transits:ai_day_report'),
+            data=json.dumps({'profile_id': other_profile.pk, 'day_offset': 0}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 403)
+
+        stat = AIDayReportDailyStat.objects.get(stat_date=date.today(), model_ref='openai:gpt-5.2')
+        self.assertEqual(stat.total_requests, 1)
+        self.assertEqual(stat.errors_count, 1)
 
 
 class PerUserEncryptionTests(TestCase):
@@ -650,6 +960,64 @@ class RealSmtpDeliveryTests(TestCase):
             output = out.getvalue()
             self.assertIn('SMTP pripojenie: OK', output)
             self.assertIn('Testovací e-mail bol odoslaný', output)
+
+
+class AIResponseCacheTests(TestCase):
+    @override_settings(
+        OPENAI_API_KEY='test-openai-key',
+        AI_RESPONSE_CACHE_ENABLED=True,
+        AI_RESPONSE_CACHE_TTL_SECONDS=3600,
+    )
+    @patch('transits.gemini_utils._generate_with_openai')
+    @patch('transits.gemini_utils.reserve_ai_call')
+    def test_generate_ai_text_uses_cache_for_same_prompt(self, reserve_call_mock, openai_mock):
+        openai_mock.return_value = '{"ok":true}'
+
+        kwargs = {
+            'model_name': 'openai:gpt-5.2',
+            'contents': 'Vrat validny JSON {"ok":true}',
+            'system_instruction': 'Len JSON.',
+            'temperature': 0.0,
+            'max_output_tokens': 80,
+            'response_mime_type': 'application/json',
+            'retries': 1,
+            'timeout_seconds': 10,
+        }
+        first = generate_ai_text(**kwargs)
+        second = generate_ai_text(**kwargs)
+
+        self.assertEqual(first, second)
+        self.assertEqual(openai_mock.call_count, 1)
+        self.assertEqual(reserve_call_mock.call_count, 1)
+        self.assertEqual(AIResponseCache.objects.count(), 1)
+        cache_row = AIResponseCache.objects.first()
+        self.assertEqual(cache_row.hits, 1)
+
+    @override_settings(
+        OPENAI_API_KEY='test-openai-key',
+        AI_RESPONSE_CACHE_ENABLED=False,
+        AI_RESPONSE_CACHE_TTL_SECONDS=3600,
+    )
+    @patch('transits.gemini_utils._generate_with_openai')
+    @patch('transits.gemini_utils.reserve_ai_call')
+    def test_generate_ai_text_without_cache_calls_provider_each_time(self, reserve_call_mock, openai_mock):
+        openai_mock.return_value = '{"ok":true}'
+
+        kwargs = {
+            'model_name': 'openai:gpt-5.2',
+            'contents': 'Vrat validny JSON {"ok":true}',
+            'system_instruction': 'Len JSON.',
+            'temperature': 0.0,
+            'max_output_tokens': 80,
+            'response_mime_type': 'application/json',
+            'retries': 1,
+            'timeout_seconds': 10,
+        }
+        _ = generate_ai_text(**kwargs)
+        _ = generate_ai_text(**kwargs)
+
+        self.assertEqual(openai_mock.call_count, 2)
+        self.assertEqual(reserve_call_mock.call_count, 2)
 
 
 @skipUnless(

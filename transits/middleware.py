@@ -16,6 +16,7 @@ class GeminiQuotaMiddleware:
             '/admin',
             '/static/',
             '/media/',
+            '/api/ai-model/select/',
         )
         if path.startswith(bypass_prefixes):
             return self.get_response(request)

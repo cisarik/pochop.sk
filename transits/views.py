@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 from datetime import date, time, datetime, timedelta
 from django.conf import settings
 from django.db import close_old_connections, transaction
+from django.db.models import F, Q
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
@@ -25,7 +26,12 @@ from django.template.loader import render_to_string
 from django.urls import reverse, reverse_lazy
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils import timezone
 from .models import (
+    AIModelOption,
+    AIDayReportCache,
+    AIDayReportDailyStat,
+    GeminiConfig,
     TransitAspect,
     NatalProfile,
     SlovakCity,
@@ -45,8 +51,11 @@ from .moment_service import MOMENT_TZ, get_or_generate_moment_report
 from .transit_data import TRANSIT_DATA
 from .gemini_utils import (
     GeminiLimitExceededError,
+    generate_ai_text,
     generate_gemini_text,
+    get_active_model_context,
     get_gemini_model,
+    has_ai_key,
     has_gemini_key,
     parse_json_payload,
 )
@@ -63,6 +72,7 @@ from .security import (
     get_profile_key_from_session,
     store_profile_key_in_session,
 )
+from .access import user_can_switch_ai_model
 
 logger = logging.getLogger(__name__)
 ANALYSIS_STATE_LOCK = threading.Lock()
@@ -839,6 +849,11 @@ def login_view(request):
     return render(request, 'transits/login.html', {'form': form})
 
 
+def loginpro_view(request):
+    """Informačná stránka pre Pro účet."""
+    return render(request, 'transits/loginpro.html')
+
+
 def logout_view(request):
     """Odhlásenie."""
     logout(request)
@@ -1483,6 +1498,7 @@ def _generate_and_save_analyses(profile, model_name=None):
             system_instruction=NATAL_SYSTEM_PROMPT,
             temperature=0.7,
             max_output_tokens=2200,
+            cache_ttl_seconds=60 * 60 * 24 * 30,
             retries=2,
             timeout_seconds=60,
         )
@@ -1508,6 +1524,7 @@ def _generate_and_save_analyses(profile, model_name=None):
             system_instruction=ASPECTS_SYSTEM_PROMPT,
             temperature=0.65,
             max_output_tokens=3200,
+            cache_ttl_seconds=60 * 60 * 24 * 30,
             retries=2,
             timeout_seconds=70,
         )
@@ -1538,6 +1555,20 @@ def _generate_and_save_analyses(profile, model_name=None):
         return True
     logger.warning(f"Analýza pre {profile.name} je neúplná, vyžaduje ďalší pokus.")
     return False
+
+
+def _invalidate_all_natal_analyses():
+    """
+    Označí všetky uložené natálne analýzy na lazy refresh.
+    Tokeny sa minú až keď konkrétny používateľ otvorí analýzu.
+    """
+    return NatalProfile.objects.filter(
+        Q(natal_analysis_json__isnull=False) | Q(natal_aspects_json__isnull=False)
+    ).update(
+        natal_analysis_json=None,
+        natal_aspects_json=None,
+        updated_at=timezone.now(),
+    )
 
 
 @login_required(login_url='transits:login')
@@ -1865,7 +1896,7 @@ def _fallback_aspects_analysis(chart):
 
 
 # ═══════════════════════════════════════════
-# Gemini AI denné hodnotenie
+# AI denné hodnotenie
 # ═══════════════════════════════════════════
 
 GEMINI_SYSTEM = """Si senior astrológ so silnou expertízou v tranzitoch, planetárnych cykloch, aspektoch a praktickej interpretácii.
@@ -2023,29 +2054,193 @@ def _fallback_ai_day_report(active_transits):
     }
 
 
+def _normalize_ai_day_model_ref(active_model_ctx):
+    provider = str(active_model_ctx.get('provider') or '').strip().lower()
+    model = str(active_model_ctx.get('model') or '').strip()
+    if provider and model:
+        return f"{provider}:{model}"
+    return model or provider or 'ai:unknown'
+
+
+def _get_ai_day_next_midnight():
+    """Najbližšia lokálna polnoc (Europe/Bratislava podľa Django TIME_ZONE)."""
+    now_local = timezone.localtime(timezone.now())
+    return (now_local + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _format_ai_generated_at(dt_obj):
+    if not dt_obj:
+        return ''
+    local_dt = timezone.localtime(dt_obj)
+    return local_dt.strftime('%d.%m.%Y %H:%M')
+
+
+def _record_ai_day_stats(
+    model_ref,
+    *,
+    total_requests=0,
+    cache_hits=0,
+    generated_reports=0,
+    fallback_reports=0,
+    errors_count=0,
+):
+    deltas = {
+        'total_requests': int(total_requests or 0),
+        'cache_hits': int(cache_hits or 0),
+        'generated_reports': int(generated_reports or 0),
+        'fallback_reports': int(fallback_reports or 0),
+        'errors_count': int(errors_count or 0),
+    }
+    if not any(deltas.values()):
+        return
+
+    try:
+        stat_date = timezone.localdate()
+        with transaction.atomic():
+            stat, _ = AIDayReportDailyStat.objects.select_for_update().get_or_create(
+                stat_date=stat_date,
+                model_ref=model_ref,
+                defaults={
+                    'total_requests': 0,
+                    'cache_hits': 0,
+                    'generated_reports': 0,
+                    'fallback_reports': 0,
+                    'errors_count': 0,
+                },
+            )
+            update_kwargs = {}
+            for field, delta in deltas.items():
+                if delta:
+                    update_kwargs[field] = F(field) + delta
+            if update_kwargs:
+                update_kwargs['updated_at'] = timezone.now()
+                AIDayReportDailyStat.objects.filter(pk=stat.pk).update(**update_kwargs)
+    except Exception as exc:
+        logger.warning("AI day stats update failed for %s: %s", model_ref, exc)
+
+
+def _load_cached_ai_day_report(profile, target_date, model_ref):
+    now = timezone.now()
+    item = (
+        AIDayReportCache.objects
+        .filter(
+            profile=profile,
+            target_date=target_date,
+            model_ref=model_ref,
+            expires_at__gt=now,
+        )
+        .only('id', 'payload_json', 'generated_at', 'profile_updated_at', 'hits')
+        .first()
+    )
+    if not item:
+        return None
+
+    profile_updated_at = getattr(profile, 'updated_at', None)
+    if item.profile_updated_at and profile_updated_at and item.profile_updated_at < profile_updated_at:
+        return None
+
+    AIDayReportCache.objects.filter(pk=item.pk).update(
+        hits=F('hits') + 1,
+        last_served_at=now,
+        updated_at=now,
+    )
+    return item
+
+
+def _store_ai_day_report_cache(profile, target_date, model_ref, payload):
+    now = timezone.now()
+    expires_at = _get_ai_day_next_midnight()
+    if expires_at <= now:
+        expires_at = now + timedelta(minutes=5)
+    payload_clean = payload if isinstance(payload, dict) else {}
+
+    AIDayReportCache.objects.update_or_create(
+        profile=profile,
+        target_date=target_date,
+        model_ref=model_ref,
+        defaults={
+            'payload_json': payload_clean,
+            'profile_updated_at': getattr(profile, 'updated_at', None),
+            'hits': 0,
+            'generated_at': now,
+            'last_served_at': now,
+            'expires_at': expires_at,
+        },
+    )
+    return now
+
+
+def _build_ai_day_response_payload(payload, active_model_ctx, generated_at, cache_hit):
+    payload_dict = payload if isinstance(payload, dict) else {}
+    try:
+        rating = max(1, min(10, int(payload_dict.get('rating', 5))))
+    except Exception:
+        rating = 5
+
+    focus = [str(x).strip() for x in (payload_dict.get('focus') or []) if str(x).strip()][:3]
+    avoid = [str(x).strip() for x in (payload_dict.get('avoid') or []) if str(x).strip()][:3]
+
+    generated_iso = timezone.localtime(generated_at).isoformat() if generated_at else ''
+    return {
+        'rating': rating,
+        'energy': str(payload_dict.get('energy') or '').strip(),
+        'focus': focus,
+        'avoid': avoid,
+        'ai_model_provider': active_model_ctx.get('provider', ''),
+        'ai_model': active_model_ctx.get('model', ''),
+        'ai_model_badge': active_model_ctx.get('badge', 'AI'),
+        'ai_model_ref': _normalize_ai_day_model_ref(active_model_ctx),
+        'generated_at': generated_iso,
+        'generated_at_display': _format_ai_generated_at(generated_at),
+        'cache_hit': bool(cache_hit),
+    }
+
+
 @login_required(login_url='transits:login')
 @require_http_methods(["POST"])
 def ai_day_report(request):
-    """API endpoint - Gemini AI hodnotenie dňa."""
+    """API endpoint - AI hodnotenie dňa (cache + metriky)."""
+    active_model_ctx = get_active_model_context()
+    model_ref = _normalize_ai_day_model_ref(active_model_ctx)
+
     if not _has_gemini_key():
+        _record_ai_day_stats(model_ref, total_requests=1, errors_count=1)
         return JsonResponse({
-            'error': 'Gemini API kľúč nie je nakonfigurovaný. Nastav ho v admin sekcii Gemini konfigurácia alebo v .env.'
+            'error': 'API kľúč pre aktívny AI model nie je nakonfigurovaný v .env.',
+            'ai_model_badge': active_model_ctx.get('badge', 'AI'),
         }, status=500)
 
     try:
-        body = json.loads(request.body)
+        body = json.loads(request.body or '{}')
         profile_id = body.get('profile_id')
-        day_offset = body.get('day_offset', 0)
-    except (json.JSONDecodeError, KeyError):
+        day_offset = int(body.get('day_offset', 0))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        _record_ai_day_stats(model_ref, total_requests=1, errors_count=1)
         return JsonResponse({'error': 'Neplatný request.'}, status=400)
 
+    if day_offset < -30 or day_offset > 365:
+        _record_ai_day_stats(model_ref, total_requests=1, errors_count=1)
+        return JsonResponse({'error': 'day_offset je mimo povolený rozsah.'}, status=400)
+
     profile = get_object_or_404(NatalProfile, pk=profile_id)
+    if not request.user.is_staff and profile.user_id != request.user.pk:
+        _record_ai_day_stats(model_ref, total_requests=1, errors_count=1)
+        return JsonResponse({'error': 'Nemáš prístup k tomuto profilu.'}, status=403)
 
-    # Vypočítame tranzity
+    target_date = timezone.localdate() + timedelta(days=day_offset)
+    cache_row = _load_cached_ai_day_report(profile, target_date, model_ref)
+    if cache_row:
+        _record_ai_day_stats(model_ref, total_requests=1, cache_hits=1)
+        return JsonResponse(
+            _build_ai_day_response_payload(
+                cache_row.payload_json,
+                active_model_ctx=active_model_ctx,
+                generated_at=cache_row.generated_at,
+                cache_hit=True,
+            )
+        )
+
     all_transits = _compute_transits_for_profile(profile, request=request)
-
-    # Vyfiltrujeme aktívne tranzity pre poludnie daného dňa
-    target_date = date.today() + timedelta(days=day_offset)
     target_noon = datetime.combine(target_date, time(12, 0))
 
     active = []
@@ -2060,18 +2255,37 @@ def ai_day_report(request):
             continue
 
     if not active:
-        return JsonResponse({
+        fallback = {
             'rating': 5,
             'energy': 'Pre tento deň nie sú dostupné žiadne výrazné tranzity.',
             'focus': ['Bežný deň bez silných planetárnych vplyvov.'],
             'avoid': ['Žiadne špecifické obmedzenia.'],
-        })
+        }
+        generated_at = _store_ai_day_report_cache(
+            profile,
+            target_date,
+            model_ref,
+            fallback,
+        )
+        _record_ai_day_stats(
+            model_ref,
+            total_requests=1,
+            generated_reports=1,
+            fallback_reports=1,
+        )
+        return JsonResponse(
+            _build_ai_day_response_payload(
+                fallback,
+                active_model_ctx=active_model_ctx,
+                generated_at=generated_at,
+                cache_hit=False,
+            )
+        )
 
-    # Zostavíme prompt
     user_prompt = _build_ai_prompt(profile, target_date, active)
 
-    # Zavoláme Gemini
     try:
+        fallback_used = False
         ai_text = generate_gemini_text(
             model_name=get_gemini_model(),
             contents=user_prompt,
@@ -2079,6 +2293,7 @@ def ai_day_report(request):
             temperature=0.55,
             max_output_tokens=700,
             response_mime_type='application/json',
+            cache_ttl_seconds=max(300, int((_get_ai_day_next_midnight() - timezone.now()).total_seconds())),
             retries=2,
             timeout_seconds=50,
         )
@@ -2086,15 +2301,164 @@ def ai_day_report(request):
         parsed = _parse_ai_response(payload if payload is not None else ai_text)
         if not parsed.get('energy') or len(parsed.get('focus', [])) < 2 or len(parsed.get('avoid', [])) < 2:
             parsed = _fallback_ai_day_report(active)
-        return JsonResponse(parsed)
+            fallback_used = True
+
+        generated_at = _store_ai_day_report_cache(
+            profile,
+            target_date,
+            model_ref,
+            parsed,
+        )
+        _record_ai_day_stats(
+            model_ref,
+            total_requests=1,
+            generated_reports=1,
+            fallback_reports=1 if fallback_used else 0,
+        )
+        return JsonResponse(
+            _build_ai_day_response_payload(
+                parsed,
+                active_model_ctx=active_model_ctx,
+                generated_at=generated_at,
+                cache_hit=False,
+            )
+        )
 
     except GeminiLimitExceededError:
+        _record_ai_day_stats(model_ref, total_requests=1, errors_count=1)
         return JsonResponse({
             'error': 'Denný limit AI volaní bol prekročený. Skúste to neskôr.',
             'limit_exceeded': True,
+            'ai_model_badge': active_model_ctx.get('badge', 'AI'),
         }, status=503)
     except Exception as e:
-        logger.error(f"Gemini API error v AI hodnotení dňa, používam fallback: {e}")
+        logger.error(f"AI API error v AI hodnotení dňa, používam fallback: {e}")
         parsed = _fallback_ai_day_report(active)
         parsed['warning'] = 'AI odpoveď nebola dostupná, zobrazený je fallback.'
-        return JsonResponse(parsed)
+        generated_at = _store_ai_day_report_cache(
+            profile,
+            target_date,
+            model_ref,
+            parsed,
+        )
+        _record_ai_day_stats(
+            model_ref,
+            total_requests=1,
+            generated_reports=1,
+            fallback_reports=1,
+            errors_count=1,
+        )
+        response_payload = _build_ai_day_response_payload(
+            parsed,
+            active_model_ctx=active_model_ctx,
+            generated_at=generated_at,
+            cache_hit=False,
+        )
+        response_payload['warning'] = parsed.get('warning')
+        return JsonResponse(response_payload)
+
+
+@login_required(login_url='transits:login')
+@require_http_methods(["POST"])
+def api_select_ai_model(request):
+    """Prepne aktívny DEFAULT_MODEL cez header dropdown (staff alebo Pro účet)."""
+    if not user_can_switch_ai_model(request.user):
+        return JsonResponse({'error': 'Nemáš oprávnenie meniť AI model.'}, status=403)
+
+    try:
+        body = json.loads(request.body or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Neplatný JSON payload.'}, status=400)
+
+    model_ref = str(body.get('model_ref') or '').strip()
+    if not model_ref:
+        return JsonResponse({'error': 'Chýba model_ref.'}, status=400)
+
+    allowed = set(
+        AIModelOption.objects.filter(is_enabled=True).values_list('model_ref', flat=True)
+    )
+    if allowed and model_ref not in allowed:
+        return JsonResponse({'error': 'Zvolený model nie je povolený v dropdown zozname.'}, status=400)
+
+    if not has_ai_key(model_name=model_ref):
+        return JsonResponse({
+            'error': 'API key pre zvolený model/provider nie je nastavený v .env.',
+        }, status=400)
+
+    try:
+        probe = generate_ai_text(
+            model_name=model_ref,
+            contents='Vrat presne text: OK',
+            system_instruction='Odpovedz iba jedným slovom: OK',
+            temperature=0,
+            max_output_tokens=8,
+            cache_ttl_seconds=0,
+            retries=1,
+            timeout_seconds=25,
+        )
+    except Exception as exc:
+        logger.warning("AI switch API test zlyhal pre %s: %s", model_ref, exc)
+        return JsonResponse({'error': f'API test pre zvolený model zlyhal: {exc}'}, status=400)
+
+    cfg, _ = GeminiConfig.objects.get_or_create(id=1)
+    if (cfg.default_model or '').strip() == model_ref:
+        active = get_active_model_context(model_name=model_ref)
+        return JsonResponse({
+            'ok': True,
+            'message': 'Model je už aktívny.',
+            'active_badge': active.get('badge', model_ref),
+            'probe': probe or 'OK',
+            'users_total': NatalProfile.objects.count(),
+            'users_ok': 0,
+            'users_fail': 0,
+            'moment_report_date': '',
+        })
+
+    cfg.default_model = model_ref
+    cfg.save(update_fields=['default_model', 'updated_at'])
+
+    total = NatalProfile.objects.count()
+    ok = 0
+    fail = 0
+    users_marked = 0
+    refresh_users_raw = body.get('refresh_users')
+    if refresh_users_raw is None:
+        eager_users_refresh = bool(getattr(settings, 'AI_MODEL_SWITCH_EAGER_USERS_REFRESH', False))
+    else:
+        eager_users_refresh = str(refresh_users_raw).strip().lower() in ('1', 'true', 'yes', 'on')
+    try:
+        if eager_users_refresh:
+            for profile in NatalProfile.objects.all().iterator():
+                if _generate_and_save_analyses(profile, model_name=model_ref):
+                    ok += 1
+                else:
+                    fail += 1
+            refresh_mode = 'eager'
+        else:
+            users_marked = _invalidate_all_natal_analyses()
+            refresh_mode = 'lazy'
+
+        report = get_or_generate_moment_report(force=True, model_name=model_ref)
+        active = get_active_model_context(model_name=model_ref)
+        return JsonResponse({
+            'ok': True,
+            'message': (
+                'AI model bol prepnutý. Natálne analýzy budú regenerované lazy pri ďalšej návšteve používateľa.'
+                if refresh_mode == 'lazy'
+                else 'AI model bol prepnutý a používateľské analýzy boli zregenerované.'
+            ),
+            'active_badge': active.get('badge', model_ref),
+            'probe': probe or 'OK',
+            'users_total': total,
+            'users_ok': ok,
+            'users_fail': fail,
+            'users_marked': users_marked,
+            'users_refresh_mode': refresh_mode,
+            'moment_report_date': report.report_date.isoformat(),
+        })
+    except Exception as exc:
+        logger.error("Prepnutie modelu na %s zlyhalo počas refreshu: %s", model_ref, exc)
+        return JsonResponse({
+            'error': f'Model bol prepnutý, ale refresh analýz/reportu zlyhal: {exc}',
+            'partial': True,
+        }, status=500)

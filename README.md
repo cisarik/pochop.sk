@@ -46,6 +46,9 @@ API kľúče sa už **neukladajú do DB**. Čítajú sa iba z `.env`.
 - Nový účet je aktivovaný až po potvrdení e-mailu (verifikačný odkaz).
 
 ## Management Commands
+- Rychly refresh po manualnych zmenach:
+  - `bash deploy/refresh.sh`
+  - `bash deploy/refresh.sh --with-migrate` (ak si menil modely/migracie)
 - Zmena modelu + refresh:
   - `python manage.py change_model --model openai:gpt-4.1-mini`
 - Verejný denný report:

@@ -37,9 +37,19 @@
     let running = false;
     let lastFrameTs = 0;
     let lastShotTs = 0;
+    const twinkle = {
+        lastTs: 0,
+        scrollOffset: 0,
+        lastScrollY: 0,
+        lastWheelTs: 0,
+    };
 
     function clamp(v, min, max) {
         return Math.min(max, Math.max(min, v));
+    }
+
+    function randomRange(min, max) {
+        return min + Math.random() * (max - min);
     }
 
     function pickProfile() {
@@ -63,6 +73,18 @@
                 shootingInterval: 22000,
                 useSpikes: false,
                 nebulaStatic: true,
+                twinkleEnabled: true,
+                twinkleMinInterval: 1100,
+                twinkleIdleInterval: 1800,
+                twinkleBaseBatch: 1,
+                twinkleMaxBatch: 2,
+                twinkleScrollOffset: 80,
+                twinkleScrollCap: 1400,
+                twinkleScrollGain: 1,
+                twinkleFadeOutMin: 0.2,
+                twinkleFadeOutMax: 0.35,
+                twinkleFadeInMin: 0.08,
+                twinkleFadeInMax: 0.16,
             };
         }
 
@@ -79,6 +101,18 @@
                 shootingInterval: 18000,
                 useSpikes: false,
                 nebulaStatic: true,
+                twinkleEnabled: true,
+                twinkleMinInterval: 360,
+                twinkleIdleInterval: 760,
+                twinkleBaseBatch: 3,
+                twinkleMaxBatch: 9,
+                twinkleScrollOffset: 44,
+                twinkleScrollCap: 5200,
+                twinkleScrollGain: 4.2,
+                twinkleFadeOutMin: 0.2,
+                twinkleFadeOutMax: 0.4,
+                twinkleFadeInMin: 0.045,
+                twinkleFadeInMax: 0.1,
             };
         }
 
@@ -94,6 +128,18 @@
             shootingInterval: 12000,
             useSpikes: true,
             nebulaStatic: false,
+            twinkleEnabled: true,
+            twinkleMinInterval: 240,
+            twinkleIdleInterval: 540,
+            twinkleBaseBatch: 6,
+            twinkleMaxBatch: 18,
+            twinkleScrollOffset: 30,
+            twinkleScrollCap: 7600,
+            twinkleScrollGain: 5.2,
+            twinkleFadeOutMin: 0.19,
+            twinkleFadeOutMax: 0.42,
+            twinkleFadeInMin: 0.035,
+            twinkleFadeInMax: 0.085,
         };
     }
 
@@ -114,7 +160,7 @@
         return {
             x: Math.random() * W,
             y: Math.random() * H,
-            r: 0.2 + Math.random() * 0.3,
+            r: 0.26 + Math.random() * 0.38,
             a: 0.08 + Math.random() * 0.16,
             color: SPECTRAL[Math.floor(Math.random() * SPECTRAL.length)],
         };
@@ -125,7 +171,7 @@
             id,
             x: Math.random() * W,
             y: Math.random() * H,
-            r: 0.45 + Math.random() * 0.85,
+            r: 0.62 + Math.random() * 1.15,
             color: SPECTRAL[Math.floor(Math.random() * SPECTRAL.length)],
             baseA: 0.25 + Math.random() * 0.55,
             p1: Math.random() * 100,
@@ -134,6 +180,10 @@
             s2: 0.6 + Math.random() * 1.4,
             d1: 0.08 + Math.random() * 0.2,
             d2: 0.04 + Math.random() * 0.14,
+            fade: 1,
+            swapState: 0,
+            swapOutDur: 0,
+            swapInDur: 0,
         };
     }
 
@@ -142,7 +192,7 @@
             id,
             x: Math.random() * W,
             y: Math.random() * H,
-            r: 0.7 + Math.random() * 0.8,
+            r: 0.95 + Math.random() * 1.05,
             color: SPECTRAL[Math.floor(Math.random() * 4)],
             baseA: 0.38 + Math.random() * 0.45,
             p1: Math.random() * 100,
@@ -161,11 +211,11 @@
             id,
             x: Math.random() * W,
             y: Math.random() * H,
-            r: 1.25 + Math.random() * 0.95,
+            r: 1.65 + Math.random() * 1.28,
             color: SPECTRAL[Math.floor(Math.random() * 5)],
             baseA: 0.65 + Math.random() * 0.3,
-            glowR: 10 + Math.random() * 14,
-            spikeLen: 7 + Math.random() * 9,
+            glowR: 13 + Math.random() * 18,
+            spikeLen: 8 + Math.random() * 10,
             rot: Math.random() * Math.PI,
             p1: Math.random() * 100,
             p2: Math.random() * 100,
@@ -218,9 +268,96 @@
         shootingStar = null;
     }
 
+    function armStarSwap(star) {
+        if (!star || star.swapState !== 0) return false;
+        star.swapState = 1;
+        star.swapOutDur = randomRange(profile.twinkleFadeOutMin, profile.twinkleFadeOutMax);
+        star.swapInDur = randomRange(profile.twinkleFadeInMin, profile.twinkleFadeInMax);
+        return true;
+    }
+
+    function respawnRegularStar(star) {
+        const next = mkStar(star.id);
+        star.x = next.x;
+        star.y = next.y;
+        star.r = next.r;
+        star.color = next.color;
+        star.baseA = next.baseA;
+        star.p1 = next.p1;
+        star.p2 = next.p2;
+        star.s1 = next.s1;
+        star.s2 = next.s2;
+        star.d1 = next.d1;
+        star.d2 = next.d2;
+        star.fade = 0;
+        star.swapState = 2;
+    }
+
+    function updateRegularStarSwap(star, dt) {
+        if (star.swapState === 1) {
+            const outDur = Math.max(0.01, star.swapOutDur);
+            star.fade = Math.max(0, star.fade - dt / outDur);
+            if (star.fade <= 0.001) {
+                respawnRegularStar(star);
+            }
+            return;
+        }
+        if (star.swapState === 2) {
+            const inDur = Math.max(0.01, star.swapInDur);
+            star.fade = Math.min(1, star.fade + dt / inDur);
+            if (star.fade >= 0.999) {
+                star.fade = 1;
+                star.swapState = 0;
+            }
+        }
+    }
+
+    function triggerTwinkleBatch(count) {
+        if (count <= 0 || stars.length === 0) return;
+        let armed = 0;
+        const maxAttempts = Math.max(24, count * 8);
+        for (let tries = 0; tries < maxAttempts && armed < count; tries++) {
+            const idx = Math.floor(Math.random() * stars.length);
+            if (armStarSwap(stars[idx])) armed++;
+        }
+    }
+
+    function maybeTriggerTwinkle(nowTs) {
+        if (!profile.twinkleEnabled || stars.length === 0) return;
+
+        const elapsed = nowTs - twinkle.lastTs;
+        if (elapsed < profile.twinkleMinInterval) return;
+
+        const steps = Math.floor(twinkle.scrollOffset / profile.twinkleScrollOffset);
+        const idleReady = elapsed >= profile.twinkleIdleInterval;
+        if (steps <= 0 && !idleReady) return;
+
+        const maxBoost = Math.max(0, profile.twinkleMaxBatch - profile.twinkleBaseBatch);
+        const scrollBoost = Math.min(steps, maxBoost);
+        const batchSize = clamp(
+            profile.twinkleBaseBatch + scrollBoost,
+            profile.twinkleBaseBatch,
+            profile.twinkleMaxBatch
+        );
+
+        triggerTwinkleBatch(batchSize);
+        twinkle.lastTs = nowTs;
+
+        if (steps > 0) {
+            twinkle.scrollOffset = Math.max(
+                0,
+                twinkle.scrollOffset - (scrollBoost + 1) * profile.twinkleScrollOffset
+            );
+        } else {
+            twinkle.scrollOffset = Math.max(0, twinkle.scrollOffset - profile.twinkleScrollOffset * 0.35);
+        }
+    }
+
     function drawRegularStar(s, t) {
         const tw = Math.sin(t * s.s1 + s.p1) * s.d1 + Math.sin(t * s.s2 + s.p2) * s.d2;
-        const a = clamp(s.baseA + tw, 0.03, 1);
+        const fade = s.fade == null ? 1 : s.fade;
+        const a = clamp((s.baseA + tw) * fade, 0.01, 1);
+        if (a <= 0.012) return;
         const rgb = s.color;
 
         ctx.beginPath();
@@ -343,7 +480,12 @@
             ctx.drawImage(dustTexture, 0, 0, W, H);
         }
 
-        for (let i = 0; i < stars.length; i++) drawRegularStar(stars[i], t);
+        maybeTriggerTwinkle(nowTs);
+
+        for (let i = 0; i < stars.length; i++) {
+            updateRegularStarSwap(stars[i], dt);
+            drawRegularStar(stars[i], t);
+        }
         for (let i = 0; i < vivid.length; i++) drawVividStar(vivid[i], t);
         for (let i = 0; i < bright.length; i++) drawBrightStar(bright[i], t);
 
@@ -393,12 +535,6 @@
             stopLoop();
             return;
         }
-        if (profile.mode === 'reduced') {
-            stopLoop();
-            const now = performance.now();
-            drawFrame(now / 1000, 1 / profile.targetFps, now);
-            return;
-        }
         startLoop();
     }
 
@@ -408,6 +544,9 @@
         resizeCanvas();
         initLayers();
         lastShotTs = 0;
+        twinkle.lastTs = 0;
+        twinkle.scrollOffset = 0;
+        twinkle.lastScrollY = window.scrollY || window.pageYOffset || 0;
     }
 
     function onResize() {
@@ -419,10 +558,42 @@
         });
     }
 
+    function onScroll() {
+        if (!profile || !profile.twinkleEnabled) return;
+        const currentY = window.scrollY || window.pageYOffset || 0;
+        const delta = Math.abs(currentY - twinkle.lastScrollY);
+        twinkle.lastScrollY = currentY;
+        if (delta < 1) return;
+        twinkle.scrollOffset = Math.min(
+            profile.twinkleScrollCap,
+            twinkle.scrollOffset + delta * (profile.twinkleScrollGain || 1)
+        );
+        if (delta > 2) {
+            twinkle.lastTs = Math.max(0, twinkle.lastTs - profile.twinkleMinInterval * 0.85);
+        }
+    }
+
+    function onWheel(evt) {
+        if (!profile || !profile.twinkleEnabled) return;
+        const delta = Math.abs(evt.deltaY || 0);
+        if (delta < 1) return;
+        twinkle.scrollOffset = Math.min(
+            profile.twinkleScrollCap,
+            twinkle.scrollOffset + delta * (profile.twinkleScrollGain || 1)
+        );
+        // Make wheel-triggered twinkle feel immediate even on short pages.
+        if (performance.now() - twinkle.lastWheelTs > 180) {
+            twinkle.lastWheelTs = performance.now();
+            twinkle.lastTs = Math.max(0, twinkle.lastTs - profile.twinkleMinInterval * 1.15);
+        }
+    }
+
     function boot() {
         initScene();
         syncAnimationState();
         window.addEventListener('resize', onResize, { passive: true });
+        window.addEventListener('scroll', onScroll, { passive: true });
+        window.addEventListener('wheel', onWheel, { passive: true });
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
                 initScene();

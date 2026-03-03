@@ -11,8 +11,10 @@ ExecStart=/var/www/pochop/venv/bin/gunicorn astro_project.wsgi:application \
     --workers 3 \
     --timeout 180 \
     --graceful-timeout 120
+ExecReload=/bin/kill -s HUP $MAINPID
 Restart=always
 RestartSec=3
+TimeoutStopSec=180
 EnvironmentFile=/var/www/pochop/.env
 
 [Install]

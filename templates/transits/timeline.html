@@ -10,10 +10,10 @@
         <!-- <a href="{% url 'transits:index' %}" class="back-link">&larr; Späť</a> -->
         <div class="tl-header-row">
             <div class="tl-profile">
-                <div class="tl-avatar">{{ profile.name|first }}</div>
+                <div class="tl-avatar">⨁</div>
                 <div>
                     <h1 class="tl-name">{{ profile.name }}</h1>
-                    <span class="tl-meta">{{ profile_birth_date }} {{ profile_birth_time }} &middot; {{ profile_birth_place }}</span>
+                    <!-- <span class="tl-meta">{{ profile_birth_date }} {{ profile_birth_time }} &middot; {{ profile_birth_place }}</span> -->
                 </div>
             </div>
             <div class="tl-day-select-wrap">
@@ -55,15 +55,22 @@
             <div class="ai-panel-header">
                 <span class="ai-icon">&#10024;</span>
                 <h3 class="ai-panel-title">AI Hodnotenie dňa</h3>
-                <span class="ai-badge">Gemini</span>
+                <div class="ai-head-meta">
+                    <span class="ai-badge ai-badge--model" id="aiModelBadge">{{ active_ai_model_badge }}</span>
+                    <span class="ai-generated-at" id="aiGeneratedAt">Pripojenie</span>
+                </div>
             </div>
 
-            <!-- Loading stav -->
-            <div class="ai-loading" id="aiLoading">
-                <div class="ai-shimmer-line ai-shimmer-short"></div>
-                <div class="ai-shimmer-line"></div>
-                <div class="ai-shimmer-line"></div>
-                <div class="ai-shimmer-line ai-shimmer-med"></div>
+            <div class="ai-progress-wrap" id="aiProgressWrap">
+                <div class="ai-progress-track">
+                    <div class="ai-progress-fill" id="aiProgressFill"></div>
+                    <div class="ai-progress-glow"></div>
+                </div>
+                <div class="ai-progress-steps" id="aiProgressSteps">
+                    <span class="ai-progress-step" data-step="connect">Pripojenie</span>
+                    <span class="ai-progress-step" data-step="prompt">AI volanie - zadavanie promptu na mieru</span>
+                    <span class="ai-progress-step" data-step="cache">Cache-vanie</span>
+                </div>
             </div>
 
             <!-- Výsledok -->
@@ -113,6 +120,20 @@
     <div class="day-detail-list" id="dayDetailList"></div>
 </section>
 
+<section class="timeline-tldr-wrap" aria-live="polite">
+    <div class="timeline-tldr-panel">
+        <div class="timeline-tldr-head">
+            <span class="timeline-tldr-icon" aria-hidden="true">&#129504;</span>
+            <h3 class="timeline-tldr-title">TLDR dňa</h3>
+        </div>
+        <p class="timeline-tldr-text" id="timelineTldrText"></p>
+        <div class="timeline-moon-row">
+            <span class="timeline-moon-label">Fáza Mesiaca</span>
+            <span class="timeline-moon-value" id="timelineMoonPhase"></span>
+        </div>
+    </div>
+</section>
+
 <!-- Transit detail modal -->
 <div class="modal-overlay" id="modalOverlay">
     <div class="modal" id="transitModal">
@@ -149,6 +170,7 @@ function getCookie(name) {
 }
 const CSRF = getCookie('csrftoken');
 const DATA = {{ transits|safe }};
+const AI_DEFAULT_BADGE = '{{ active_ai_model_badge|escapejs }}';
 const DAYS = 30;
 const START = new Date();
 START.setHours(0,0,0,0);
@@ -156,9 +178,40 @@ START.setHours(0,0,0,0);
 const COLORS = { positive:'#10b981', negative:'#ef4444', neutral:'#8b5cf6' };
 const SK_DAYS = ['Ne','Po','Ut','St','Št','Pi','So'];
 const SK_MONTHS = ['jan','feb','mar','apr','máj','jún','júl','aug','sep','okt','nov','dec'];
+const SYNODIC_MONTH_DAYS = 29.53058867;
+const KNOWN_NEW_MOON_UTC_MS = Date.UTC(2000, 0, 6, 18, 14, 0);
+const MOON_PHASE_BANDS = [
+    { maxAge: 1.84566, emoji: '🌑', label: 'Nov' },
+    { maxAge: 5.53699, emoji: '🌒', label: 'Dorastajúci kosák' },
+    { maxAge: 9.22831, emoji: '🌓', label: 'Prvá štvrť' },
+    { maxAge: 12.91963, emoji: '🌔', label: 'Dorastajúci Mesiac' },
+    { maxAge: 16.61096, emoji: '🌕', label: 'Spln' },
+    { maxAge: 20.30228, emoji: '🌖', label: 'Cúvajúci Mesiac' },
+    { maxAge: 23.99361, emoji: '🌗', label: 'Posledná štvrť' },
+    { maxAge: 27.68493, emoji: '🌘', label: 'Ubúdajúci kosák' },
+    { maxAge: SYNODIC_MONTH_DAYS, emoji: '🌑', label: 'Nov' },
+];
 
 function dayLabelFull(d) {
     return `${SK_DAYS[d.getDay()]} ${d.getDate()}. ${SK_MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function getDayDate(dayIdx) {
+    const d = new Date(START.getTime());
+    d.setDate(d.getDate() + dayIdx);
+    return d;
+}
+
+function getMoonPhaseInfo(targetDate) {
+    const daysSinceKnownNew = (targetDate.getTime() - KNOWN_NEW_MOON_UTC_MS) / 86400000;
+    const lunarAge = ((daysSinceKnownNew % SYNODIC_MONTH_DAYS) + SYNODIC_MONTH_DAYS) % SYNODIC_MONTH_DAYS;
+    const illumination = Math.round(((1 - Math.cos((2 * Math.PI * lunarAge) / SYNODIC_MONTH_DAYS)) / 2) * 100);
+    const band = MOON_PHASE_BANDS.find((item) => lunarAge < item.maxAge) || MOON_PHASE_BANDS[0];
+    return {
+        label: band.label,
+        emoji: band.emoji,
+        illumination,
+    };
 }
 
 const DAY_W = 150;
@@ -350,27 +403,96 @@ function selectDay(dayIdx) {
     moveLineTo(dayIdx);
 
     // Update detail panel
-    updateDayDetail(dayIdx);
+    const activeTransits = updateDayDetail(dayIdx);
+    updateTimelineTldr(dayIdx, activeTransits);
 
     // AI hodnotenie
     fetchAiReport(dayIdx);
 }
 
-// ───── AI Gemini hodnotenie ─────
+// ───── AI hodnotenie dňa ─────
 const PROFILE_ID = {{ profile.pk }};
 let aiAbortCtrl = null;
+let aiProgressTimer = null;
+const aiProgressWrap = document.getElementById('aiProgressWrap');
+const aiProgressFill = document.getElementById('aiProgressFill');
+const aiProgressSteps = Array.from(document.querySelectorAll('.ai-progress-step'));
+const AI_PROGRESS_LABELS = [
+    'Pripojenie',
+    'AI volanie - zadavanie promptu na mieru',
+    'Cache-vanie',
+];
+
+function setAiStatusText(text, isCached = false) {
+    const generatedEl = document.getElementById('aiGeneratedAt');
+    if (!generatedEl) {
+        return;
+    }
+    generatedEl.classList.toggle('ai-generated-at--cached', Boolean(isCached));
+    generatedEl.textContent = text || '';
+}
+
+function setAiProgressState(stepIndex, widthPercent) {
+    if (!aiProgressFill) {
+        return;
+    }
+    aiProgressFill.style.width = `${Math.max(0, Math.min(100, widthPercent))}%`;
+    aiProgressSteps.forEach((stepEl, idx) => {
+        stepEl.classList.toggle('is-active', idx === stepIndex);
+        stepEl.classList.toggle('is-done', idx < stepIndex);
+    });
+    setAiStatusText(AI_PROGRESS_LABELS[stepIndex] || AI_PROGRESS_LABELS[0]);
+}
+
+function clearAiProgressTimer() {
+    if (aiProgressTimer) {
+        clearInterval(aiProgressTimer);
+        aiProgressTimer = null;
+    }
+}
+
+function startAiProgress() {
+    clearAiProgressTimer();
+    if (aiProgressWrap) {
+        aiProgressWrap.style.display = '';
+    }
+    setAiProgressState(0, 18);
+    let step = 0;
+    aiProgressTimer = setInterval(() => {
+        step = Math.min(step + 1, 2);
+        const width = step === 1 ? 56 : 86;
+        setAiProgressState(step, width);
+        if (step >= 2) {
+            clearAiProgressTimer();
+        }
+    }, 620);
+}
+
+function finishAiProgress() {
+    clearAiProgressTimer();
+    if (aiProgressFill) {
+        aiProgressFill.style.width = '100%';
+    }
+    aiProgressSteps.forEach((stepEl) => {
+        stepEl.classList.add('is-done');
+        stepEl.classList.remove('is-active');
+    });
+}
 
 async function fetchAiReport(dayIdx) {
     const panel = document.getElementById('aiPanel');
-    const loading = document.getElementById('aiLoading');
     const result = document.getElementById('aiResult');
     const error = document.getElementById('aiError');
 
     // Reset
     panel.classList.remove('ai-panel--loaded', 'ai-panel--error');
-    loading.style.display = '';
+    document.getElementById('aiEnergy').classList.remove('ai-section--visible');
+    document.getElementById('aiFocus').classList.remove('ai-section--visible');
+    document.getElementById('aiAvoid').classList.remove('ai-section--visible');
     result.style.display = 'none';
     error.style.display = 'none';
+    updateAiMeta({ ai_model_badge: AI_DEFAULT_BADGE });
+    startAiProgress();
 
     // Abort predchadzajuci request
     if (aiAbortCtrl) aiAbortCtrl.abort();
@@ -385,6 +507,7 @@ async function fetchAiReport(dayIdx) {
         });
 
         const data = await resp.json();
+        updateAiMeta(data);
 
         if (data.error) {
             showAiError(data.error);
@@ -392,7 +515,10 @@ async function fetchAiReport(dayIdx) {
         }
 
         // Zobraz vysledok s animaciou
-        loading.style.display = 'none';
+        finishAiProgress();
+        if (aiProgressWrap) {
+            aiProgressWrap.style.display = 'none';
+        }
         result.style.display = '';
         panel.classList.add('ai-panel--loaded');
 
@@ -415,8 +541,44 @@ async function fetchAiReport(dayIdx) {
     }
 }
 
+function updateAiMeta(data) {
+    const badgeEl = document.getElementById('aiModelBadge');
+    const generatedEl = document.getElementById('aiGeneratedAt');
+
+    if (badgeEl) {
+        badgeEl.textContent = (data?.ai_model_badge || AI_DEFAULT_BADGE || 'AI').trim();
+    }
+    if (!generatedEl) {
+        return;
+    }
+
+    generatedEl.classList.remove('ai-generated-at--cached');
+    const generatedText = (data?.generated_at_display || '').trim();
+    if (!generatedText) {
+        generatedEl.textContent = 'Pripojenie';
+        return;
+    }
+
+    generatedEl.textContent = generatedText;
+    if (data?.cache_hit) {
+        generatedEl.classList.add('ai-generated-at--cached');
+        generatedEl.textContent += ' • cache';
+    }
+}
+
 function showAiError(msg) {
-    document.getElementById('aiLoading').style.display = 'none';
+    clearAiProgressTimer();
+    if (aiProgressWrap) {
+        aiProgressWrap.style.display = '';
+        aiProgressSteps.forEach((stepEl) => {
+            stepEl.classList.remove('is-active');
+            stepEl.classList.remove('is-done');
+        });
+        if (aiProgressFill) {
+            aiProgressFill.style.width = '100%';
+        }
+    }
+    setAiStatusText('Pripojenie zlyhalo');
     document.getElementById('aiResult').style.display = 'none';
     const err = document.getElementById('aiError');
     err.style.display = '';
@@ -470,8 +632,7 @@ async function typeList(ulId, items, sectionId) {
 }
 
 function updateDayDetail(dayIdx) {
-    const d = new Date(START.getTime());
-    d.setDate(d.getDate() + dayIdx);
+    const d = getDayDate(dayIdx);
     d.setHours(12,0,0,0); // stred dňa = fialová čiara
 
     const titleEl = document.getElementById('dayDetailTitle');
@@ -495,19 +656,19 @@ function updateDayDetail(dayIdx) {
 
     if (active.length === 0) {
         list.innerHTML = '<div class="dd-empty">Žiadne aktívne tranzity v tento deň</div>';
-        return;
+        return active;
     }
 
+    const midDate = new Date(midTime);
     active.sort((a,b) => {
-        const mid = new Date(d.getTime() + 12*3600000);
         const ae = a.exact_date_iso ? new Date(a.exact_date_iso) : new Date((new Date(a.start_date_iso).getTime()+new Date(a.end_date_iso).getTime())/2);
         const be = b.exact_date_iso ? new Date(b.exact_date_iso) : new Date((new Date(b.start_date_iso).getTime()+new Date(b.end_date_iso).getTime())/2);
-        return Math.abs(mid-ae) - Math.abs(mid-be);
+        return Math.abs(midDate-ae) - Math.abs(midDate-be);
     });
 
     active.forEach(t => {
         const color = COLORS[t.effect] || COLORS.neutral;
-        const mid = new Date(d.getTime() + 12*3600000);
+        const mid = midDate;
         const exact = t.exact_date_iso ? new Date(t.exact_date_iso) :
             new Date((new Date(t.start_date_iso).getTime()+new Date(t.end_date_iso).getTime())/2);
         const span = new Date(t.end_date_iso) - new Date(t.start_date_iso);
@@ -542,6 +703,69 @@ function updateDayDetail(dayIdx) {
         card.addEventListener('click', () => openModal(t));
         list.appendChild(card);
     });
+
+    return active;
+}
+
+function normalizeTransitSentence(text) {
+    const clean = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!clean) {
+        return '';
+    }
+    return /[.!?…]$/.test(clean) ? clean : `${clean}.`;
+}
+
+function buildTldrText(activeTransits) {
+    if (!Array.isArray(activeTransits) || activeTransits.length === 0) {
+        return 'Dnes nemáš aktívne tranzity s výrazným textovým výkladom.';
+    }
+
+    const sortedByIntensity = [...activeTransits].sort(
+        (a, b) => Number(b.intensity || 0) - Number(a.intensity || 0),
+    );
+
+    const picked = [];
+    const seen = new Set();
+
+    for (const transit of sortedByIntensity) {
+        const sentence = normalizeTransitSentence(transit.text);
+        if (!sentence) {
+            continue;
+        }
+        if (seen.has(sentence)) {
+            continue;
+        }
+        seen.add(sentence);
+        picked.push(sentence);
+        if (picked.length >= 3) {
+            break;
+        }
+    }
+
+    if (!picked.length) {
+        return 'Dnes nemáš aktívne tranzity s výrazným textovým výkladom.';
+    }
+
+    let tldr = picked.join(' ');
+    if (activeTransits.length > picked.length) {
+        tldr += ' ...';
+    }
+    return tldr;
+}
+
+function updateTimelineTldr(dayIdx, activeTransits) {
+    const tldrEl = document.getElementById('timelineTldrText');
+    const moonEl = document.getElementById('timelineMoonPhase');
+    if (!tldrEl || !moonEl) {
+        return;
+    }
+
+    tldrEl.textContent = buildTldrText(activeTransits);
+
+    const dayDate = getDayDate(dayIdx);
+    dayDate.setHours(12, 0, 0, 0);
+    const phase = getMoonPhaseInfo(dayDate);
+    moonEl.textContent = `${phase.emoji} ${phase.label} · ${phase.illumination}% osvetlenie`;
 }
 
 selectDay(0);

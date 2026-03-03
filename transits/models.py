@@ -155,6 +155,11 @@ class NatalProfile(models.Model):
     )
     name = models.CharField('Meno', max_length=100)
     gender = models.CharField('Pohlavie', max_length=10, choices=GENDER_CHOICES, default='male')
+    is_pro = models.BooleanField(
+        'Pro účet',
+        default=False,
+        help_text='Ak je zapnuté, používateľ má Pro oprávnenia (napr. prepínanie AI modelu).',
+    )
     # Legacy/plain fields zostávajú pre spätnú kompatibilitu, no nové zápisy ich nulujú.
     birth_date = models.DateField('Dátum narodenia', null=True, blank=True)
     birth_time = models.TimeField('Čas narodenia', null=True, blank=True)
@@ -441,6 +446,120 @@ class GeminiConfig(models.Model):
     @model_name.setter
     def model_name(self, value):
         self.default_model = value
+
+
+class AIModelOption(models.Model):
+    """Modely zobrazované v header dropdown-e."""
+
+    label = models.CharField(
+        'Názov modelu',
+        max_length=80,
+        help_text='Viditeľný názov v UI, napr. GPT-5.2 alebo Gemini Pro 2.5.',
+    )
+    model_ref = models.CharField(
+        'Model identifikátor',
+        max_length=120,
+        unique=True,
+        help_text='Runtime hodnota, napr. openai:gpt-5.2 alebo gemini:gemini-2.5-pro.',
+    )
+    sort_order = models.PositiveIntegerField('Poradie', default=10)
+    is_enabled = models.BooleanField('Zobraziť v headri', default=True)
+    created_at = models.DateTimeField('Vytvorené', auto_now_add=True)
+    updated_at = models.DateTimeField('Aktualizované', auto_now=True)
+
+    class Meta:
+        verbose_name = 'AI model do headeru'
+        verbose_name_plural = 'AI modely do headeru'
+        ordering = ['sort_order', 'label']
+
+    def __str__(self):
+        return f"{self.label} ({self.model_ref})"
+
+
+class AIResponseCache(models.Model):
+    """Persistovaná cache AI odpovedí na šetrenie API volaní."""
+
+    cache_key = models.CharField('Cache key', max_length=64, unique=True, db_index=True)
+    provider = models.CharField('Provider', max_length=20, default='gemini')
+    model_name = models.CharField('Model', max_length=120, default='')
+    response_text = models.TextField('Response text', default='')
+    hits = models.PositiveIntegerField('Počet cache hitov', default=0)
+    expires_at = models.DateTimeField('Expirácia', db_index=True)
+    created_at = models.DateTimeField('Vytvorené', auto_now_add=True)
+    updated_at = models.DateTimeField('Aktualizované', auto_now=True)
+
+    class Meta:
+        verbose_name = 'AI response cache'
+        verbose_name_plural = 'AI response cache'
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return f"{self.provider}:{self.model_name} [{self.cache_key[:10]}...]"
+
+
+class AIDayReportCache(models.Model):
+    """Per-profil/per-deň cache pre AI hodnotenie dňa v timeline."""
+
+    profile = models.ForeignKey(
+        NatalProfile,
+        on_delete=models.CASCADE,
+        related_name='ai_day_report_cache_rows',
+        verbose_name='Profil',
+    )
+    target_date = models.DateField('Dátum hodnotenia', db_index=True)
+    model_ref = models.CharField('Model', max_length=120, db_index=True)
+    payload_json = models.JSONField('AI payload', default=dict)
+    profile_updated_at = models.DateTimeField('Profil updated_at snapshot', null=True, blank=True)
+    hits = models.PositiveIntegerField('Počet cache hitov', default=0)
+    generated_at = models.DateTimeField('Generované', auto_now_add=True)
+    last_served_at = models.DateTimeField('Naposledy servované', null=True, blank=True)
+    expires_at = models.DateTimeField('Expirácia', db_index=True)
+    created_at = models.DateTimeField('Vytvorené', auto_now_add=True)
+    updated_at = models.DateTimeField('Aktualizované', auto_now=True)
+
+    class Meta:
+        verbose_name = 'AI hodnotenie dňa cache'
+        verbose_name_plural = 'AI hodnotenie dňa cache'
+        ordering = ['-target_date', '-updated_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['profile', 'target_date', 'model_ref'],
+                name='uniq_ai_day_cache_profile_date_model',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['target_date', 'model_ref']),
+        ]
+
+    def __str__(self):
+        return f"{self.target_date} | {self.model_ref} | profile={self.profile_id}"
+
+
+class AIDayReportDailyStat(models.Model):
+    """Agregované denné metriky endpointu AI hodnotenia dňa."""
+
+    stat_date = models.DateField('Dátum', db_index=True)
+    model_ref = models.CharField('Model', max_length=120, db_index=True)
+    total_requests = models.PositiveIntegerField('Počet requestov', default=0)
+    cache_hits = models.PositiveIntegerField('Cache hity', default=0)
+    generated_reports = models.PositiveIntegerField('Nové generovania', default=0)
+    fallback_reports = models.PositiveIntegerField('Fallback odpovede', default=0)
+    errors_count = models.PositiveIntegerField('Chyby endpointu', default=0)
+    updated_at = models.DateTimeField('Aktualizované', auto_now=True)
+
+    class Meta:
+        verbose_name = 'AI hodnotenie dňa štatistika'
+        verbose_name_plural = 'AI hodnotenie dňa štatistiky'
+        ordering = ['-stat_date', 'model_ref']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['stat_date', 'model_ref'],
+                name='uniq_ai_day_stats_date_model',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.stat_date} | {self.model_ref} | req={self.total_requests}"
 
 
 class GeminiDailyUsage(models.Model):

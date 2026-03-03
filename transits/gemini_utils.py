@@ -1,10 +1,13 @@
 import json
 import re
 import time
-from datetime import date
+import hashlib
+from datetime import date, timedelta
 
 from django.conf import settings
 from django.db import transaction
+from django.db.utils import OperationalError, ProgrammingError
+from django.utils import timezone
 
 
 SUPPORTED_AI_PROVIDERS = ('gemini', 'openai')
@@ -16,6 +19,112 @@ class AILimitExceededError(Exception):
 
 # Backward compatibility for existing imports.
 GeminiLimitExceededError = AILimitExceededError
+
+
+def _normalize_cache_value(value):
+    if value is None:
+        return ''
+    if isinstance(value, (dict, list, tuple)):
+        try:
+            return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+        except Exception:
+            return str(value)
+    return str(value)
+
+
+def _build_ai_cache_key(
+    *,
+    provider,
+    model_name,
+    contents,
+    system_instruction,
+    temperature,
+    max_output_tokens,
+    response_mime_type,
+    response_schema,
+):
+    try:
+        temp_val = float(temperature)
+    except Exception:
+        temp_val = 0.0
+    try:
+        max_tokens_val = int(max_output_tokens)
+    except Exception:
+        max_tokens_val = 0
+
+    payload = {
+        'provider': (provider or '').strip().lower(),
+        'model': (model_name or '').strip().lower(),
+        'contents': _normalize_cache_value(contents),
+        'system_instruction': _normalize_cache_value(system_instruction),
+        'temperature': temp_val,
+        'max_output_tokens': max_tokens_val,
+        'response_mime_type': _normalize_cache_value(response_mime_type),
+        'response_schema': _normalize_cache_value(response_schema),
+    }
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()
+
+
+def _resolve_cache_ttl_seconds(cache_ttl_seconds):
+    if cache_ttl_seconds is None:
+        cache_ttl_seconds = getattr(settings, 'AI_RESPONSE_CACHE_TTL_SECONDS', 86400)
+    try:
+        return max(0, int(cache_ttl_seconds))
+    except Exception:
+        return 0
+
+
+def _is_cache_enabled(ttl_seconds):
+    if ttl_seconds <= 0:
+        return False
+    return bool(getattr(settings, 'AI_RESPONSE_CACHE_ENABLED', True))
+
+
+def _get_cached_ai_response(cache_key):
+    try:
+        from .models import AIResponseCache
+
+        now = timezone.now()
+        item = (
+            AIResponseCache.objects
+            .filter(cache_key=cache_key, expires_at__gt=now)
+            .only('id', 'response_text', 'hits')
+            .first()
+        )
+        if not item:
+            return ''
+        AIResponseCache.objects.filter(pk=item.pk).update(
+            hits=item.hits + 1,
+            updated_at=now,
+        )
+        return (item.response_text or '').strip()
+    except (OperationalError, ProgrammingError):
+        return ''
+    except Exception:
+        return ''
+
+
+def _store_cached_ai_response(cache_key, provider, model_name, text, ttl_seconds):
+    if not text:
+        return
+    try:
+        from .models import AIResponseCache
+
+        now = timezone.now()
+        AIResponseCache.objects.update_or_create(
+            cache_key=cache_key,
+            defaults={
+                'provider': (provider or '').strip().lower(),
+                'model_name': (model_name or '').strip(),
+                'response_text': text,
+                'expires_at': now + timedelta(seconds=ttl_seconds),
+            },
+        )
+    except (OperationalError, ProgrammingError):
+        return
+    except Exception:
+        return
 
 
 def _get_admin_config():
@@ -274,6 +383,7 @@ def generate_ai_text(
     api_key=None,
     response_mime_type=None,
     response_schema=None,
+    cache_ttl_seconds=None,
     retries=2,
     timeout_seconds=45,
 ):
@@ -282,6 +392,24 @@ def generate_ai_text(
     resolved_api_key = (api_key or '').strip() or get_provider_api_key(provider)
     if not resolved_api_key:
         raise RuntimeError(f"API key pre provider `{provider}` nie je nastavený.")
+
+    ttl_seconds = _resolve_cache_ttl_seconds(cache_ttl_seconds)
+    cache_enabled = _is_cache_enabled(ttl_seconds)
+    cache_key = ''
+    if cache_enabled:
+        cache_key = _build_ai_cache_key(
+            provider=provider,
+            model_name=resolved_model,
+            contents=contents,
+            system_instruction=system_instruction,
+            temperature=temperature,
+            max_output_tokens=max_output_tokens,
+            response_mime_type=response_mime_type,
+            response_schema=response_schema,
+        )
+        cached_text = _get_cached_ai_response(cache_key)
+        if cached_text:
+            return cached_text
 
     last_text = ""
     last_exc = None
@@ -321,6 +449,14 @@ def generate_ai_text(
 
         text = (text or '').strip()
         if text:
+            if cache_enabled and cache_key:
+                _store_cached_ai_response(
+                    cache_key,
+                    provider=provider,
+                    model_name=resolved_model,
+                    text=text,
+                    ttl_seconds=ttl_seconds,
+                )
             return text
         last_text = text
         if attempt + 1 < attempts:
@@ -363,6 +499,7 @@ def generate_gemini_text(
     api_key=None,
     response_mime_type=None,
     response_schema=None,
+    cache_ttl_seconds=None,
     retries=2,
     timeout_seconds=45,
 ):
@@ -375,6 +512,7 @@ def generate_gemini_text(
         api_key=api_key,
         response_mime_type=response_mime_type,
         response_schema=response_schema,
+        cache_ttl_seconds=cache_ttl_seconds,
         retries=retries,
         timeout_seconds=timeout_seconds,
     )

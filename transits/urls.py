@@ -16,6 +16,7 @@ urlpatterns = [
     ),
     path('register/', views.register_view, name='register'),
     path('login/', views.login_view, name='login'),
+    path('loginpro/', views.loginpro_view, name='loginpro'),
     path('password/change/', views.password_change_view, name='password_change'),
     path('password/change/done/', views.password_change_done_view, name='password_change_done'),
     path('password/reset/', views.PochopPasswordResetView.as_view(), name='password_reset'),
@@ -37,5 +38,6 @@ urlpatterns = [
     path('api/cities/', views.api_cities, name='api_cities'),
     path('api/transits/<int:profile_id>/', views.api_transits, name='api_transits'),
     path('api/ai-day-report/', views.ai_day_report, name='ai_day_report'),
+    path('api/ai-model/select/', views.api_select_ai_model, name='api_select_ai_model'),
     path('api/natal-analysis-status/', views.api_natal_analysis_status, name='api_natal_analysis_status'),
 ]

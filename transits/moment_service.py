@@ -303,6 +303,7 @@ def _generate_ai_moment_report(report_date, planets, aspects, angles, model_name
             temperature=0.55,
             max_output_tokens=700,
             response_mime_type='application/json',
+            cache_ttl_seconds=60 * 60 * 24 * 14,
             retries=2,
             timeout_seconds=55,
         )

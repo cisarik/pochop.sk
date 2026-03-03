@@ -26,7 +26,8 @@
     <div class="hero-content">
         <div class="hero-shell">
             <p class="hero-subtitle">
-                Astrologická analýza tvojho natálneho horoskopu, odporúčania na každý deň pomocou <span class="ai-badge ai-badge--model">{{ active_ai_model_badge }}</span>
+                Astrologická analýza tvojho natálneho horoskopu, odporúčania na každý deň pomocou
+                <span class="hero-subtitle-ai"><i>AI</i></span>
             </p>
             <div class="hero-actions">
                 <a href="{% url 'transits:login' %}" class="btn-outline btn-hero">
@@ -90,6 +91,33 @@
             <div class="feature-icon">📘</div>
             <h3>Lexikón</h3>
             <p><span class="feature-lead">Naučte sa astrológiu krok za krokom</span>vysvetlenia planét, aspektov a tranzitov pre začiatočníkov aj pokročilých.</p>
+        </div>
+    </div>
+</section>
+<section class="hero hero-pro">
+    <div class="hero-content hero-content--pro">
+        <h2 class="pro-title"><i>Pro</i> účet</h2>
+        <div class="hero-shell">
+            <div class="hero-actions">
+                <a href="{% url 'transits:loginpro' %}" class="btn-outline btn-hero">
+                    ❍ Nastavenie modelu AI
+                </a>
+                <a href="{% url 'transits:loginpro' %}" class="btn-outline btn-hero">
+                    ❍ Interaktívny prehľad tranzitov (timeline) na 365 dní dopredu
+                </a>
+                <a href="{% url 'transits:loginpro' %}" class="btn-outline btn-hero">
+                    ❍ Možnosť vytvorenia viacerých profilov teda aj viacerých horoskopov
+                </a>
+                <a href="{% url 'transits:loginpro' %}" class="btn-outline btn-hero">
+                    ❍ Nastaviteľné GPS pre generovanie planetárneho usporiadania v danom čase
+                </a>
+                <a href="{% url 'transits:loginpro' %}" class="btn-outline btn-hero">
+                    ❍ Pravidelné e-maily aktívych tranzitoch - vplyvoch na vás a vašich blízkych
+                </a>
+                <a href="{% url 'transits:loginpro' %}" class="btn-primary btn-hero btn-hero-pro">
+                    <span class="btn-icon">✦</span>Kúpiť Pro účet
+                </a>
+            </div>
         </div>
     </div>
 </section>

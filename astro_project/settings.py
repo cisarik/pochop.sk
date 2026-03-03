@@ -29,6 +29,12 @@ DEFAULT_MODEL = os.environ.get('DEFAULT_MODEL', GEMINI_MODEL)
 AI_MAX_CALLS_DAILY = int(
     os.environ.get('AI_MAX_CALLS_DAILY', os.environ.get('GEMINI_MAX_CALLS_DAILY', '500'))
 )
+AI_MODEL_SWITCH_EAGER_USERS_REFRESH = os.environ.get(
+    'AI_MODEL_SWITCH_EAGER_USERS_REFRESH',
+    'False',
+).lower() in ('true', '1', 'yes')
+AI_RESPONSE_CACHE_ENABLED = os.environ.get('AI_RESPONSE_CACHE_ENABLED', 'True').lower() in ('true', '1', 'yes')
+AI_RESPONSE_CACHE_TTL_SECONDS = int(os.environ.get('AI_RESPONSE_CACHE_TTL_SECONDS', '86400'))
 
 # E-mail (password reset)
 EMAIL_BACKEND = os.environ.get(
