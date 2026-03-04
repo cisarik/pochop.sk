@@ -161,7 +161,8 @@ html.starfield-lite .nebula-layer {
     100% { transform: translateX(140%); opacity: 0; }
 }
 .nav-container {
-    max-width: 1400px; margin: 0 auto; padding: 0 20px;
+    max-width: none; margin: 0 auto; padding: 0 20px;
+    width: 100%;
     min-height: 74px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
     column-gap: 20px; row-gap: 8px;
     position: relative; z-index: 1;
@@ -242,7 +243,7 @@ html.starfield-lite .nebula-layer {
     transition: transform .28s ease, color .28s ease, text-shadow .28s ease;
 }
 .nav-tagline-wrap {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     justify-content: center;
     flex-wrap: wrap;
@@ -276,7 +277,7 @@ html.starfield-lite .nebula-layer {
     filter: drop-shadow(0 0 14px rgba(196, 144, 255, 0.45)) drop-shadow(0 0 34px rgba(147, 102, 242, 0.32)) saturate(1.1);
 }
 .nav-right {
-    display: flex; align-items: center; gap: 16px; flex-wrap: wrap; justify-content: flex-end;
+    display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; justify-content: flex-end;
     justify-self: end;
 }
 .nav-moment {
@@ -302,6 +303,9 @@ html.starfield-lite .nebula-layer {
     border-color: rgba(210, 166, 255, 0.55);
     transform: translateY(-1px);
     box-shadow: 0 8px 22px rgba(140, 78, 220, 0.2);
+}
+.nav-moment-link--lexikon.is-auto-hidden {
+    display: none;
 }
 .nav-ai {
     position: relative;
@@ -2178,6 +2182,26 @@ html.starfield-lite .nebula-layer {
     }
     .nav-links {
         gap: 12px;
+    }
+}
+
+@media (max-width: 1024px) {
+    .nav-container {
+        grid-template-columns: auto 1fr;
+    }
+    .nav-tagline-wrap {
+        display: none !important;
+    }
+    .nav-ai {
+        display: none !important;
+    }
+    .nav-right {
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .nav-moment,
+    .nav-links {
+        gap: 8px;
     }
 }
 

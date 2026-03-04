@@ -6,6 +6,17 @@
 - Two critical user-facing features must stay healthy:
   - `AI Hodnotenie dňa`
   - `Astrologický rozbor okamihu`
+  - `Astrologický rozbor planetárnych tranzitov`
+  in other words, we want this features to be increasingly better asi AI is getting better often. That's why adding new models in the admin and changing through the frontend. We are lazy caching requests so that only necessary API request are made. 
+
+  This features are future features we (me and you) will be working by calling Codex agents
+
+## Pro (paying users) profiles features"
+  - `Nastavenie AI modelu - možnosť porovnať výsledky medzi rôznymi modelmi a mať tak k dispozícii viac interpretácií/ astrologických analýz`
+  - `Interaktívny prehľad tranzitov (časová os) na 365 dní do budúcnosti (30 dní pre Free účet) a 365 dní do minulosti`
+  - `Možnosť vytvorenia viacerých profilov teda aj viacerých horoskopov. Môžeš si uložiť iných ľudí a sledovať ich vývoj. Každý profil má svoj vlastný horoskop, aspekty a tranzity.`
+  - `Nastaviteľné miesto na Zemi pre generovanie planetárneho usporiadania. Môžeš si vybrať miesto a zobraziť planetárne usporiadanie v danom čase a mieste.`
+  - `Pravidelné e-maily aktívych tranzitoch - vplyvoch na vás a vašich blízkych. Môžeš si nastaviť frekvenciu e-mailov ako si páči.`
 
 ## Engineering Priorities
 - Preserve correctness of algorithmic astrology calculations (time/place sensitive).

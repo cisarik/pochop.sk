@@ -1,4 +1,84 @@
 (function () {
+    const navContainer = document.querySelector('.nav-container');
+    const navBrand = navContainer ? navContainer.querySelector('.nav-brand-wrap') : null;
+    const navTagline = navContainer ? navContainer.querySelector('.nav-tagline-wrap') : null;
+    const navRight = navContainer ? navContainer.querySelector('.nav-right') : null;
+    const navLexikon = navContainer ? navContainer.querySelector('.nav-moment-link--lexikon') : null;
+    const navModelTrigger = navTagline ? navTagline.querySelector('.nav-ai-trigger') : null;
+
+    const getLexikonNaturalWidth = () => {
+        if (!navLexikon) {
+            return 0;
+        }
+        const measured = navLexikon.getBoundingClientRect().width;
+        if (measured > 0) {
+            navLexikon.dataset.fullWidth = measured.toFixed(2);
+            return measured;
+        }
+        const stored = Number.parseFloat(navLexikon.dataset.fullWidth || '0');
+        return Number.isFinite(stored) ? stored : 0;
+    };
+
+    const syncLexikonVisibility = () => {
+        if (!navContainer || !navBrand || !navTagline || !navRight || !navLexikon) {
+            return;
+        }
+
+        if (window.getComputedStyle(navTagline).display === 'none') {
+            navLexikon.classList.remove('is-auto-hidden');
+            return;
+        }
+
+        const lexikonNaturalWidth = getLexikonNaturalWidth();
+        const navStyles = window.getComputedStyle(navContainer);
+        const gapValue = Number.parseFloat(navStyles.columnGap || '0');
+        const columnGap = Number.isFinite(gapValue) ? gapValue : 0;
+        const paddingLeft = Number.parseFloat(navStyles.paddingLeft || '0');
+        const paddingRight = Number.parseFloat(navStyles.paddingRight || '0');
+        const containerInnerWidth = navContainer.clientWidth - paddingLeft - paddingRight;
+        const usedWidth =
+            navBrand.scrollWidth +
+            navTagline.scrollWidth +
+            navRight.scrollWidth +
+            (columnGap * 2);
+        const remainingSpace = containerInnerWidth - usedWidth;
+        const remainingSpaceWithLexikon = navLexikon.classList.contains('is-auto-hidden')
+            ? remainingSpace - lexikonNaturalWidth
+            : remainingSpace;
+        const modelWidth = navModelTrigger ? navModelTrigger.getBoundingClientRect().width : 0;
+
+        if (remainingSpaceWithLexikon < modelWidth) {
+            navLexikon.classList.add('is-auto-hidden');
+        } else {
+            navLexikon.classList.remove('is-auto-hidden');
+        }
+    };
+
+    let navResizeRaf = null;
+    const scheduleLexikonSync = () => {
+        if (navResizeRaf !== null) {
+            window.cancelAnimationFrame(navResizeRaf);
+        }
+        navResizeRaf = window.requestAnimationFrame(() => {
+            navResizeRaf = null;
+            syncLexikonVisibility();
+        });
+    };
+
+    if (navContainer && navLexikon) {
+        scheduleLexikonSync();
+        window.addEventListener('load', scheduleLexikonSync);
+        window.addEventListener('resize', scheduleLexikonSync);
+        if ('ResizeObserver' in window) {
+            const navResizeObserver = new window.ResizeObserver(scheduleLexikonSync);
+            [navContainer, navBrand, navTagline, navRight, navModelTrigger].forEach((node) => {
+                if (node) {
+                    navResizeObserver.observe(node);
+                }
+            });
+        }
+    }
+
     const dropdowns = Array.from(document.querySelectorAll('[data-ai-dropdown]'));
     if (!dropdowns.length) {
         return;
