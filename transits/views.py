@@ -1,6 +1,7 @@
 import json
 import logging
 import threading
+import ipaddress
 from zoneinfo import ZoneInfo
 from urllib.parse import urlencode
 from datetime import date, time, datetime, timedelta
@@ -9,7 +10,7 @@ from django.db import close_old_connections, transaction
 from django.db.utils import OperationalError, ProgrammingError
 from django.db.models import F, Q
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.contrib.auth import login, logout, update_session_auth_hash
@@ -49,7 +50,13 @@ from .forms import (
     StyledSetPasswordForm,
     ResendVerificationForm,
 )
-from .moment_service import MOMENT_TZ, get_or_generate_moment_report
+from .moment_service import (
+    MOMENT_DEFAULT_LOCATION_KEY,
+    MOMENT_TZ,
+    build_moment_location_payload,
+    enrich_moment_aspects_with_text,
+    get_or_generate_moment_report,
+)
 from .transit_data import TRANSIT_DATA
 from .gemini_utils import (
     GeminiLimitExceededError,
@@ -74,6 +81,9 @@ from .security import (
     store_profile_key_in_session,
 )
 from .access import user_can_switch_ai_model, user_has_pro_account
+from .services.geocoding import geocode_forward, geocode_reverse
+from .services.ip_geo import ip_to_location
+from .services.city_lookup import find_nearest_slovak_city
 
 logger = logging.getLogger(__name__)
 ANALYSIS_STATE_LOCK = threading.Lock()
@@ -537,33 +547,73 @@ def index(request):
     active_model_ctx = get_active_model_context()
     active_model_ref = _normalize_ai_day_model_ref(active_model_ctx)
     moment_report = (
-        MomentReport.objects.filter(report_date=today, model_ref=active_model_ref).first()
-        or MomentReport.objects.filter(model_ref=active_model_ref).order_by('-report_date').first()
+        MomentReport.objects.filter(
+            report_date=today,
+            model_ref=active_model_ref,
+            location_key=MOMENT_DEFAULT_LOCATION_KEY,
+        ).first()
+        or MomentReport.objects.filter(
+            model_ref=active_model_ref,
+            location_key=MOMENT_DEFAULT_LOCATION_KEY,
+        ).order_by('-report_date').first()
         or MomentReport.objects.order_by('-report_date').first()
     )
 
     context = {}
     if moment_report:
+        landing_aspects = enrich_moment_aspects_with_text(moment_report.aspects_json)
         context = {
             'landing_moment_report': moment_report,
             'landing_moment_planets_json': json.dumps(moment_report.planets_json, ensure_ascii=False),
-            'landing_moment_aspects_json': json.dumps(moment_report.aspects_json, ensure_ascii=False),
+            'landing_moment_aspects_json': json.dumps(landing_aspects, ensure_ascii=False),
         }
     return render(request, 'transits/index.html', context)
 
 
 def moment_overview(request):
     """Verejná stránka s denným astrologickým rozborom okamihu."""
-    report = get_or_generate_moment_report()
+    city_param = request.GET.get('city', '')
+    country_param = request.GET.get('country', '')
+    lat_param = request.GET.get('lat')
+    lon_param = request.GET.get('lon')
+
+    if (not str(city_param or '').strip()) and lat_param is not None and lon_param is not None:
+        nearest_city = find_nearest_slovak_city(lat_param, lon_param)
+        if nearest_city:
+            city_param = nearest_city.get('name') or city_param
+            if not str(country_param or '').strip():
+                country_param = 'Slovensko'
+
+    report_location = build_moment_location_payload(
+        lat=lat_param,
+        lon=lon_param,
+        city=city_param,
+        country=country_param,
+        name=request.GET.get('location', ''),
+        timezone_name=MOMENT_TZ,
+    )
+    report = get_or_generate_moment_report(location=report_location)
     active_model_ctx = getattr(report, '_active_model_ctx', None) or get_active_model_context()
+    report_aspects = enrich_moment_aspects_with_text(report.aspects_json)
+    location_payload = report.ai_report_json.get('location') if isinstance(report.ai_report_json, dict) else {}
+    location_name = str((location_payload or {}).get('name') or getattr(report, 'location_name', '') or '').strip()
+    location_lat = (location_payload or {}).get('lat')
+    location_lon = (location_payload or {}).get('lon')
+    if location_lat is None:
+        location_lat = getattr(report, 'location_lat', None)
+    if location_lon is None:
+        location_lon = getattr(report, 'location_lon', None)
     return render(request, 'transits/moment.html', {
         'report_date': report.report_date,
         'moment_planets_json': json.dumps(report.planets_json, ensure_ascii=False),
-        'moment_aspects_json': json.dumps(report.aspects_json, ensure_ascii=False),
+        'moment_aspects_json': json.dumps(report_aspects, ensure_ascii=False),
         'moment_ai_json': json.dumps(report.ai_report_json, ensure_ascii=False),
         'moment_generated_at': report.updated_at,
         'moment_ai_model_badge': active_model_ctx.get('badge', ''),
         'moment_cache_hit': bool(getattr(report, '_cache_hit', False)),
+        'moment_location_name': location_name,
+        'moment_location_lat': location_lat,
+        'moment_location_lon': location_lon,
     })
 
 
@@ -1024,6 +1074,204 @@ class PochopPasswordResetConfirmView(PasswordResetConfirmView):
 
 class PochopPasswordResetCompleteView(PasswordResetCompleteView):
     template_name = 'transits/password_reset_complete.html'
+
+
+# ═══════════════════════════════════════════
+# Location API
+# ═══════════════════════════════════════════
+
+_LOCATION_MAX_PART_LEN = 120
+
+
+def _parse_json_body(request):
+    try:
+        data = json.loads(request.body or '{}')
+    except json.JSONDecodeError:
+        return None, 'Neplatný JSON payload.'
+    if not isinstance(data, dict):
+        return None, 'JSON payload musí byť objekt.'
+    return data, ''
+
+
+def _normalize_location_part(value, *, field):
+    cleaned = ' '.join(str(value or '').strip().split())
+    if not cleaned:
+        return '', f'Pole `{field}` je povinné.'
+    if len(cleaned) > _LOCATION_MAX_PART_LEN:
+        return '', f'Pole `{field}` je príliš dlhé.'
+    return cleaned, ''
+
+
+def _extract_client_ip(request):
+    candidates = []
+
+    # CDN/proxy headers (Cloudflare, Akamai, etc.)
+    for header_name in ('HTTP_CF_CONNECTING_IP', 'HTTP_TRUE_CLIENT_IP'):
+        header_val = str(request.META.get(header_name, '') or '').strip()
+        if header_val:
+            candidates.append(header_val)
+
+    x_forwarded_for = str(request.META.get('HTTP_X_FORWARDED_FOR', '') or '').strip()
+    if x_forwarded_for:
+        candidates.extend([part.strip() for part in x_forwarded_for.split(',') if part.strip()])
+
+    x_real_ip = str(request.META.get('HTTP_X_REAL_IP', '') or '').strip()
+    if x_real_ip:
+        candidates.append(x_real_ip)
+
+    remote_addr = str(request.META.get('REMOTE_ADDR', '') or '').strip()
+    if remote_addr:
+        candidates.append(remote_addr)
+
+    valid_ips = []
+    public_ips = []
+    for candidate in candidates:
+        try:
+            parsed = ipaddress.ip_address(candidate)
+        except ValueError:
+            continue
+
+        normalized = str(parsed)
+        valid_ips.append(normalized)
+        is_public = not (
+            parsed.is_private
+            or parsed.is_loopback
+            or parsed.is_link_local
+            or parsed.is_reserved
+            or parsed.is_multicast
+            or parsed.is_unspecified
+        )
+        if is_public:
+            public_ips.append(normalized)
+
+    if public_ips:
+        return public_ips[0]
+    if valid_ips:
+        return valid_ips[0]
+    return ''
+
+
+def _normalize_country_token(value):
+    return ' '.join(str(value or '').strip().lower().split())
+
+
+def _is_slovakia_country(value):
+    token = _normalize_country_token(value)
+    return token in {
+        'slovensko',
+        'slovakia',
+        'slovak republic',
+        'slovak republic (slovakia)',
+        'sk',
+        'svk',
+    }
+
+
+def _looks_like_slovak_coordinates(lat, lon):
+    try:
+        lat_val = float(lat)
+        lon_val = float(lon)
+    except (TypeError, ValueError):
+        return False
+    return 47.6 <= lat_val <= 49.7 and 16.7 <= lon_val <= 22.7
+
+
+@require_http_methods(["POST"])
+def api_location_reverse(request):
+    body, err = _parse_json_body(request)
+    if err:
+        return JsonResponse({'error': err}, status=400)
+
+    try:
+        lat = float(body.get('lat'))
+        lon = float(body.get('lon'))
+    except (TypeError, ValueError):
+        return JsonResponse({'error': 'lat/lon musia byť čísla.'}, status=400)
+
+    if not (-90.0 <= lat <= 90.0):
+        return JsonResponse({'error': 'lat je mimo rozsah -90..90.'}, status=400)
+    if not (-180.0 <= lon <= 180.0):
+        return JsonResponse({'error': 'lon je mimo rozsah -180..180.'}, status=400)
+
+    payload = geocode_reverse(lat, lon)
+    if not payload:
+        return JsonResponse({'error': 'Lokalitu sa nepodarilo určiť.'}, status=404)
+
+    return JsonResponse({
+        'country': payload.get('country') or '',
+        'city': payload.get('city') or '',
+        'region': payload.get('region') or '',
+        'postcode': payload.get('postcode') or '',
+    })
+
+
+@require_http_methods(["POST"])
+def api_location_forward(request):
+    body, err = _parse_json_body(request)
+    if err:
+        return JsonResponse({'error': err}, status=400)
+
+    country, country_err = _normalize_location_part(body.get('country'), field='country')
+    if country_err:
+        return JsonResponse({'error': country_err}, status=400)
+
+    city, city_err = _normalize_location_part(body.get('city'), field='city')
+    if city_err:
+        return JsonResponse({'error': city_err}, status=400)
+
+    region_raw = body.get('region')
+    region = ' '.join(str(region_raw or '').strip().split())
+    if len(region) > _LOCATION_MAX_PART_LEN:
+        return JsonResponse({'error': 'Pole `region` je príliš dlhé.'}, status=400)
+
+    payload = geocode_forward(country=country, city=city, region=region or None)
+    if not payload:
+        return JsonResponse({'error': 'Súradnice sa nepodarilo nájsť.'}, status=404)
+
+    return JsonResponse({
+        'lat': payload.get('lat'),
+        'lon': payload.get('lon'),
+        'country': payload.get('country') or country,
+        'city': payload.get('city') or city,
+        'region': payload.get('region') or region,
+    })
+
+
+@require_http_methods(["GET"])
+def api_location_from_ip(request):
+    client_ip = _extract_client_ip(request)
+    if not client_ip:
+        return HttpResponse(status=204)
+
+    payload = ip_to_location(client_ip)
+    if not payload:
+        return HttpResponse(status=204)
+
+    country = payload.get('country') or ''
+    city = payload.get('city') or ''
+    region = payload.get('region') or ''
+    lat = payload.get('lat')
+    lon = payload.get('lon')
+
+    if lat is not None and lon is not None and (
+        _is_slovakia_country(country) or _looks_like_slovak_coordinates(lat, lon) or not str(country).strip()
+    ):
+        nearest_city = find_nearest_slovak_city(lat, lon)
+        if nearest_city:
+            # Pre Slovensko berieme nearest city z GPS ako source of truth.
+            city = nearest_city.get('name') or city
+            if not region:
+                region = nearest_city.get('district') or ''
+            if not country:
+                country = 'Slovensko'
+
+    return JsonResponse({
+        'country': country,
+        'city': city,
+        'region': region,
+        'lat': lat,
+        'lon': lon,
+    })
 
 
 # ═══════════════════════════════════════════

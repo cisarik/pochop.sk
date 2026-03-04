@@ -4,7 +4,9 @@
     const navTagline = navContainer ? navContainer.querySelector('.nav-tagline-wrap') : null;
     const navRight = navContainer ? navContainer.querySelector('.nav-right') : null;
     const navLexikon = navContainer ? navContainer.querySelector('.nav-moment-link--lexikon') : null;
+    const navModelDropdown = navTagline ? navTagline.querySelector('[data-ai-dropdown]') : null;
     const navModelTrigger = navTagline ? navTagline.querySelector('.nav-ai-trigger') : null;
+    const navTaglineText = navTagline ? navTagline.querySelector('.nav-tagline') : null;
 
     const getLexikonNaturalWidth = () => {
         if (!navLexikon) {
@@ -19,38 +21,101 @@
         return Number.isFinite(stored) ? stored : 0;
     };
 
+    const getModelNaturalWidth = () => {
+        if (!navModelTrigger) {
+            return 0;
+        }
+        const measured = navModelTrigger.getBoundingClientRect().width;
+        if (measured > 0) {
+            navModelTrigger.dataset.fullWidth = measured.toFixed(2);
+            return measured;
+        }
+        const stored = Number.parseFloat(navModelTrigger.dataset.fullWidth || '0');
+        return Number.isFinite(stored) ? stored : 0;
+    };
+
+    const getTaglineNaturalWidth = () => {
+        if (!navTaglineText) {
+            return 0;
+        }
+        const measured = navTaglineText.getBoundingClientRect().width;
+        const scrolled = navTaglineText.scrollWidth || 0;
+        const width = Math.max(measured, scrolled);
+        if (width > 0) {
+            navTaglineText.dataset.fullWidth = width.toFixed(2);
+            return width;
+        }
+        const stored = Number.parseFloat(navTaglineText.dataset.fullWidth || '0');
+        return Number.isFinite(stored) ? stored : 0;
+    };
+
+    const closeModelDropdown = () => {
+        if (!navModelDropdown) {
+            return;
+        }
+        navModelDropdown.classList.remove('is-open');
+        const trigger = navModelDropdown.querySelector('.nav-ai-trigger');
+        if (trigger) {
+            trigger.setAttribute('aria-expanded', 'false');
+        }
+    };
+
     const syncLexikonVisibility = () => {
-        if (!navContainer || !navBrand || !navTagline || !navRight || !navLexikon) {
+        if (!navContainer || !navBrand || !navTagline || !navRight) {
             return;
         }
 
         if (window.getComputedStyle(navTagline).display === 'none') {
-            navLexikon.classList.remove('is-auto-hidden');
+            if (navLexikon) {
+                navLexikon.classList.remove('is-auto-hidden');
+            }
+            if (navModelDropdown) {
+                navModelDropdown.classList.remove('is-auto-hidden');
+            }
             return;
         }
 
-        const lexikonNaturalWidth = getLexikonNaturalWidth();
         const navStyles = window.getComputedStyle(navContainer);
         const gapValue = Number.parseFloat(navStyles.columnGap || '0');
         const columnGap = Number.isFinite(gapValue) ? gapValue : 0;
         const paddingLeft = Number.parseFloat(navStyles.paddingLeft || '0');
         const paddingRight = Number.parseFloat(navStyles.paddingRight || '0');
-        const containerInnerWidth = navContainer.clientWidth - paddingLeft - paddingRight;
-        const usedWidth =
-            navBrand.scrollWidth +
-            navTagline.scrollWidth +
-            navRight.scrollWidth +
-            (columnGap * 2);
-        const remainingSpace = containerInnerWidth - usedWidth;
-        const remainingSpaceWithLexikon = navLexikon.classList.contains('is-auto-hidden')
-            ? remainingSpace - lexikonNaturalWidth
-            : remainingSpace;
-        const modelWidth = navModelTrigger ? navModelTrigger.getBoundingClientRect().width : 0;
+        const containerInnerWidth = Math.max(0, navContainer.clientWidth - paddingLeft - paddingRight);
+        const nonTaglineWidth = navBrand.scrollWidth + navRight.scrollWidth + (columnGap * 2);
+        const availableForTagline = containerInnerWidth - nonTaglineWidth;
 
-        if (remainingSpaceWithLexikon < modelWidth) {
-            navLexikon.classList.add('is-auto-hidden');
+        if (navLexikon) {
+            const lexikonNaturalWidth = getLexikonNaturalWidth();
+            const modelWidth = getModelNaturalWidth();
+            const remainingSpaceWithLexikon = availableForTagline + (navLexikon.classList.contains('is-auto-hidden') ? lexikonNaturalWidth : 0);
+
+            if (remainingSpaceWithLexikon < modelWidth) {
+                navLexikon.classList.add('is-auto-hidden');
+            } else {
+                navLexikon.classList.remove('is-auto-hidden');
+            }
+        }
+
+        if (!navModelDropdown) {
+            return;
+        }
+
+        const taglineNaturalWidth = getTaglineNaturalWidth();
+        const modelWidth = navModelTrigger ? navModelTrigger.getBoundingClientRect().width : 0;
+        const modelNaturalWidth = Math.max(modelWidth, getModelNaturalWidth());
+        const gapBetweenTaglineAndModel = 12;
+        const requiredWidthWithModel = taglineNaturalWidth + modelNaturalWidth + gapBetweenTaglineAndModel;
+        const requiredWidthWithoutModel = taglineNaturalWidth;
+        const revealThreshold = 18;
+
+        if (availableForTagline < requiredWidthWithModel) {
+            closeModelDropdown();
+            navModelDropdown.classList.add('is-auto-hidden');
         } else {
-            navLexikon.classList.remove('is-auto-hidden');
+            const canShowAgain = availableForTagline >= (requiredWidthWithoutModel + modelNaturalWidth + revealThreshold);
+            if (canShowAgain) {
+                navModelDropdown.classList.remove('is-auto-hidden');
+            }
         }
     };
 
@@ -65,13 +130,13 @@
         });
     };
 
-    if (navContainer && navLexikon) {
+    if (navContainer && (navLexikon || navModelDropdown)) {
         scheduleLexikonSync();
         window.addEventListener('load', scheduleLexikonSync);
         window.addEventListener('resize', scheduleLexikonSync);
         if ('ResizeObserver' in window) {
             const navResizeObserver = new window.ResizeObserver(scheduleLexikonSync);
-            [navContainer, navBrand, navTagline, navRight, navModelTrigger].forEach((node) => {
+            [navContainer, navBrand, navTagline, navTaglineText, navRight, navModelTrigger, navModelDropdown].forEach((node) => {
                 if (node) {
                     navResizeObserver.observe(node);
                 }

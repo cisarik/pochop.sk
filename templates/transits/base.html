@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="sk">
 <head>
@@ -25,10 +26,10 @@
             </div>
             <div class="nav-tagline-wrap">
                 <p class="nav-tagline">Pochop sám seba pomocou astrológie a <span class="nav-tagline-ai"><b>AI</b></span></p>
-                <div class="nav-ai nav-ai--tagline" data-ai-dropdown data-ai-switch-url="{% url 'transits:api_select_ai_model' %}">
+                <div class="nav-ai nav-ai--tagline{% if user.is_authenticated and has_pro_account %} nav-ai--pro{% endif %}" data-ai-dropdown data-ai-switch-url="{% url 'transits:api_select_ai_model' %}">
                     <button type="button" class="nav-ai-trigger {% if not can_switch_ai_model %}nav-ai-trigger--locked{% endif %}" aria-label="Aktívny AI model" aria-expanded="false" aria-controls="nav-ai-dropdown-panel">
                         <span class="nav-ai-trigger-copy">
-                            <span class="nav-ai-trigger-model">{{ active_ai_model_badge }}</span>
+                            <span class="nav-ai-trigger-model">{{ active_ai_model_label }}</span>
                             {% if not can_switch_ai_model %}
                                 <span class="nav-ai-dropdown-hint">Model compare dostupný len pre Pro</span>
                             {% endif %}
@@ -64,19 +65,19 @@
             <div class="nav-right">
                 <div class="nav-moment">
                     <a href="{% url 'transits:lexikon' %}" class="nav-moment-link nav-moment-link--lexikon">Lexikón</a>
-                    <a href="{% url 'transits:moment_overview' %}" class="nav-moment-link">Astrologický rozbor okamihu</a>
+                    <a href="{% url 'transits:moment_overview' %}" class="nav-moment-link nav-moment-link--lexikon">Astrologický rozbor okamihu</a>
                 </div>
                 
                 <div class="nav-links">
                     {% if user.is_authenticated %}
-                        <a href="{% url 'transits:natal_analysis' %}" class="nav-moment-link">Analýza</a>
-                        <a href="{% url 'transits:timeline' %}" class="nav-moment-link">Tranzity</a>
-                        <a href="{% url 'transits:password_change' %}" class="nav-moment-link">Zmena hesla</a>
+                        <a href="{% url 'transits:natal_analysis' %}" class="nav-moment-link nav-moment-link--lexikon">Analýza</a>
+                        <a href="{% url 'transits:timeline' %}" class="nav-moment-link nav-moment-link--lexikon">Tranzity</a>
+                        <a href="{% url 'transits:password_change' %}" class="nav-moment-link nav-moment-link--lexikon">Zmena hesla</a>
                         <!-- <span class="nav-user">{{ user.username }}</span> -->
-                        <a href="{% url 'transits:logout' %}" class="nav-moment-link">Odhlásiť</a>
+                        <a href="{% url 'transits:logout' %}" class="nav-moment-link nav-moment-link--lexikon">Odhlásiť</a>
                     {% else %}
-                        <a href="{% url 'transits:login' %}" class="nav-moment-link">Prihlásiť</a>
-                        <a href="{% url 'transits:register' %}" class="nav-moment-link">Registrácia</a>
+                        <a href="{% url 'transits:login' %}" class="nav-moment-link nav-moment-link--lexikon">Prihlásiť</a>
+                        <a href="{% url 'transits:register' %}" class="nav-moment-link nav-moment-link--lexikon nav-moment-link--register-cta">Registrácia</a>
                     {% endif %}
                 </div>
             </div>
@@ -91,7 +92,7 @@
         <div class="footer-container">
             <p class="footer-main">Pochop &mdash; Astrologická analýza & tranzity pomocou <span class="ai-badge">{{ active_ai_model_badge }}</span></p>
             <div class="footer-oss">
-                <span class="footer-oss-label">✶ <strong>Projekt je open source:</strong></span>
+                <span class="footer-oss-label">Projekt je open source:</strong></span>
                 <a href="https://github.com/cisarik/pochop.sk" target="_blank" rel="noopener noreferrer" class="nav-moment-link footer-oss-link">github.com/cisarik/pochop.sk</a>
             </div>
         </div>

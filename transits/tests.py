@@ -21,7 +21,7 @@ from django.utils import timezone
 
 from .engine import calculate_natal_chart, calculate_natal_positions, get_timezone_for_location
 from .gemini_utils import GeminiLimitExceededError, generate_ai_text, parse_json_payload
-from .moment_service import get_or_generate_moment_report
+from .moment_service import enrich_moment_aspects_with_text, get_or_generate_moment_report
 from .models import (
     AIDayReportCache,
     AIDayReportDailyStat,
@@ -31,6 +31,7 @@ from .models import (
     GeminiConfig,
     MomentReport,
     NatalProfile,
+    SlovakCity,
     UserProStatus,
 )
 from .security import derive_user_key_b64
@@ -83,6 +84,53 @@ class IndexSecurityUxTests(TestCase):
         response = client.get(reverse('transits:index'))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Model compare dostupný len pre Pro')
+
+    def test_index_nav_model_trigger_uses_plain_model_label(self):
+        GeminiConfig.objects.create(default_model='openai:gpt-5.2', max_calls_daily=500)
+        AIModelOption.objects.update_or_create(
+            model_ref='openai:gpt-5.2',
+            defaults={
+                'label': 'GPT-5.2',
+                'is_enabled': True,
+                'is_available': True,
+                'sort_order': 10,
+            },
+        )
+
+        client = Client(HTTP_HOST='pochop.sk')
+        response = client.get(reverse('transits:index'))
+        self.assertEqual(response.status_code, 200)
+        self.assertRegex(
+            response.content.decode('utf-8'),
+            r'<span class="nav-ai-trigger-model">\s*GPT-5\.2\s*</span>',
+        )
+
+    def test_index_adds_pro_dropdown_skin_for_pro_user(self):
+        GeminiConfig.objects.create(default_model='openai:gpt-5.2', max_calls_daily=500)
+        AIModelOption.objects.update_or_create(
+            model_ref='openai:gpt-5.2',
+            defaults={
+                'label': 'GPT-5.2',
+                'is_enabled': True,
+                'is_available': True,
+                'sort_order': 10,
+            },
+        )
+        pro_user = User.objects.create_user(
+            username='header_pro_user',
+            email='header_pro_user@example.com',
+            password='StrongPass123!',
+        )
+        UserProStatus.objects.create(user=pro_user, is_pro=True)
+
+        client = Client(HTTP_HOST='pochop.sk')
+        client.force_login(pro_user)
+        response = client.get(reverse('transits:index'))
+        self.assertEqual(response.status_code, 200)
+        self.assertRegex(
+            response.content.decode('utf-8'),
+            r'class="nav-ai nav-ai--tagline nav-ai--pro"',
+        )
 
 
 class UserAdminProVisibilityTests(TestCase):
@@ -1783,6 +1831,144 @@ class RefreshToCacheCommandTests(TestCase):
         self.assertEqual(call_obj.kwargs.get('model_name'), 'openai:gpt-5.2')
 
 
+class MomentAspectExplanationTests(TestCase):
+    def test_enrich_moment_aspects_adds_text_from_lexicon_data(self):
+        aspects = [{
+            'planet1': 'uranus',
+            'planet2': 'venus',
+            'aspect': 'sextile',
+            'effect': 'positive',
+        }]
+        enriched = enrich_moment_aspects_with_text(aspects)
+        self.assertEqual(len(enriched), 1)
+        self.assertIn('Nečakané finančné príležitosti', enriched[0].get('text', ''))
+
+    def test_enrich_moment_aspects_preserves_existing_text(self):
+        aspects = [{
+            'planet1': 'sun',
+            'planet2': 'moon',
+            'aspect': 'trine',
+            'effect': 'positive',
+            'text': 'Vlastný text aspektu.',
+        }]
+        enriched = enrich_moment_aspects_with_text(aspects)
+        self.assertEqual(enriched[0].get('text'), 'Vlastný text aspektu.')
+
+    @patch('transits.views.get_or_generate_moment_report')
+    def test_moment_overview_injects_explanations_for_cached_rows_without_text(self, report_mock):
+        report_mock.return_value = SimpleNamespace(
+            report_date=date(2026, 3, 4),
+            planets_json=[],
+            aspects_json=[{
+                'planet1': 'uranus',
+                'planet2': 'venus',
+                'planet1_symbol': '♅',
+                'planet2_symbol': '♀',
+                'planet1_name_sk': 'Urán',
+                'planet2_name_sk': 'Venuša',
+                'aspect': 'sextile',
+                'aspect_symbol': '⚹',
+                'aspect_name_sk': 'sextil',
+                'orb': 0.29,
+                'effect': 'positive',
+            }],
+            ai_report_json={
+                'rating': 7,
+                'energy': 'Test energia.',
+                'themes': ['T1'],
+                'focus': ['F1'],
+                'avoid': ['A1'],
+            },
+            updated_at=timezone.now(),
+            _active_model_ctx={'badge': 'GPT-5.2'},
+            _cache_hit=True,
+        )
+        client = Client(HTTP_HOST='pochop.sk')
+        response = client.get(reverse('transits:moment_overview'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Nečakané finančné príležitosti')
+
+    @patch('transits.views.get_or_generate_moment_report')
+    def test_moment_overview_forwards_location_query_to_generator(self, report_mock):
+        report_mock.return_value = SimpleNamespace(
+            report_date=date(2026, 3, 4),
+            planets_json=[],
+            aspects_json=[],
+            ai_report_json={
+                'rating': 7,
+                'energy': 'Test energia.',
+                'themes': ['T1'],
+                'focus': ['F1'],
+                'avoid': ['A1'],
+                'location': {
+                    'name': 'Žilina, Slovensko',
+                    'lat': 49.223,
+                    'lon': 18.739,
+                },
+            },
+            location_name='Žilina, Slovensko',
+            location_lat=49.223,
+            location_lon=18.739,
+            updated_at=timezone.now(),
+            _active_model_ctx={'badge': 'GPT-5.2'},
+            _cache_hit=False,
+        )
+        client = Client(HTTP_HOST='pochop.sk')
+        response = client.get(
+            reverse('transits:moment_overview'),
+            {
+                'lat': '49.223',
+                'lon': '18.739',
+                'city': 'Žilina',
+                'country': 'Slovensko',
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        location_arg = report_mock.call_args.kwargs.get('location') or {}
+        self.assertEqual(location_arg.get('lat'), 49.223)
+        self.assertEqual(location_arg.get('lon'), 18.739)
+        self.assertEqual(location_arg.get('city'), 'Žilina')
+        self.assertEqual(location_arg.get('country'), 'Slovensko')
+
+    @patch('transits.views.get_or_generate_moment_report')
+    def test_moment_overview_backfills_city_from_nearest_when_missing(self, report_mock):
+        SlovakCity.objects.create(
+            name='Bratislava',
+            district='Bratislava I',
+            lat=48.1486,
+            lon=17.1077,
+        )
+        report_mock.return_value = SimpleNamespace(
+            report_date=date(2026, 3, 4),
+            planets_json=[],
+            aspects_json=[],
+            ai_report_json={
+                'rating': 7,
+                'energy': 'Test energia.',
+                'themes': ['T1'],
+                'focus': ['F1'],
+                'avoid': ['A1'],
+                'location': {'name': 'Bratislava, Slovensko', 'lat': 48.1486, 'lon': 17.1077},
+            },
+            location_name='Bratislava, Slovensko',
+            location_lat=48.1486,
+            location_lon=17.1077,
+            updated_at=timezone.now(),
+            _active_model_ctx={'badge': 'GPT-5.2'},
+            _cache_hit=False,
+        )
+
+        client = Client(HTTP_HOST='pochop.sk')
+        response = client.get(
+            reverse('transits:moment_overview'),
+            {'lat': '48.1486', 'lon': '17.1077'},
+        )
+        self.assertEqual(response.status_code, 200)
+        location_arg = report_mock.call_args.kwargs.get('location') or {}
+        self.assertEqual(location_arg.get('city'), 'Bratislava')
+        self.assertEqual(location_arg.get('country'), 'Slovensko')
+
+
 class MomentReportModelCacheTests(TestCase):
     @patch('transits.moment_service._generate_ai_moment_report')
     @patch('transits.moment_service.calculate_moment_aspects')
@@ -1874,6 +2060,57 @@ class MomentReportModelCacheTests(TestCase):
         self.assertFalse(getattr(second, '_cache_hit', True))
         self.assertEqual(generate_report_mock.call_count, 2)
         self.assertEqual(MomentReport.objects.filter(report_date=target_date, model_ref='openai:gpt-5.2').count(), 1)
+
+    @patch('transits.moment_service._generate_ai_moment_report')
+    @patch('transits.moment_service.calculate_moment_aspects')
+    @patch('transits.moment_service.calculate_moment_angles')
+    @patch('transits.moment_service.calculate_moment_snapshot')
+    def test_moment_report_cache_is_scoped_by_location(
+        self,
+        snapshot_mock,
+        angles_mock,
+        aspects_mock,
+        generate_report_mock,
+    ):
+        snapshot_mock.return_value = []
+        angles_mock.return_value = {
+            'ascendant': {'longitude': 100.0, 'sign': 'Rak', 'degree': 10.0, 'symbol': '♋'},
+            'midheaven': {'longitude': 250.0, 'sign': 'Strelec', 'degree': 10.0, 'symbol': '♐'},
+        }
+        aspects_mock.return_value = []
+        generate_report_mock.return_value = {
+            'rating': 6,
+            'energy': 'Lokálny test.',
+            'themes': ['T1'],
+            'focus': ['F1'],
+            'avoid': ['A1'],
+        }
+
+        target_date = date(2026, 3, 4)
+        first = get_or_generate_moment_report(
+            report_date=target_date,
+            model_name='openai:gpt-5.2',
+            location={'lat': 48.1486, 'lon': 17.1077, 'city': 'Bratislava', 'country': 'Slovensko'},
+        )
+        second = get_or_generate_moment_report(
+            report_date=target_date,
+            model_name='openai:gpt-5.2',
+            location={'lat': 48.1486, 'lon': 17.1077, 'city': 'Bratislava', 'country': 'Slovensko'},
+        )
+        third = get_or_generate_moment_report(
+            report_date=target_date,
+            model_name='openai:gpt-5.2',
+            location={'lat': 49.0, 'lon': 18.0, 'city': 'Žilina', 'country': 'Slovensko'},
+        )
+
+        self.assertFalse(getattr(first, '_cache_hit', True))
+        self.assertTrue(getattr(second, '_cache_hit', False))
+        self.assertFalse(getattr(third, '_cache_hit', True))
+        self.assertEqual(generate_report_mock.call_count, 2)
+
+        rows = MomentReport.objects.filter(report_date=target_date, model_ref='openai:gpt-5.2')
+        self.assertEqual(rows.count(), 2)
+        self.assertEqual(set(rows.values_list('location_key', flat=True)), {'48.1486:17.1077', '49.0000:18.0000'})
 
 
 class AIResponseCacheTests(TestCase):

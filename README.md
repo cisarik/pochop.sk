@@ -38,6 +38,103 @@ V adminovi (`AI konfigurácia`) vieš meniť:
 
 API kľúče sa už **neukladajú do DB**. Čítajú sa iba z `.env`.
 
+## Geolocation API (GPS / City / IP)
+- `POST /api/location/reverse` body: `{"lat": 48.1486, "lon": 17.1077}`
+  - response: `{"country","city","region","postcode"}`
+- `POST /api/location/forward` body: `{"country":"Slovensko","city":"Bratislava","region":"Bratislavský kraj"}`
+  - response: `{"lat","lon","country","city","region"}`
+- `GET /api/location/from-ip`
+  - response: `{"country","city","region","lat","lon"}` alebo `204 No Content`
+
+Použité služby:
+- reverse/forward: OpenStreetMap Nominatim cez `geopy` (`transits/services/geocoding.py`)
+- IP fallback: `ipapi.co` (`transits/services/ip_geo.py`)
+- nearest city pre GPS: lokálna DB `SlovakCity` (`transits/services/city_lookup.py`)
+
+Rate limit + retry:
+- Nominatim má minimálny rozostup volaní `>= 1s`, custom `User-Agent`, retry + backoff pri `429/5xx`.
+- Výsledky geocodingu/IP sú cacheované do DB (`LocationLookupCache`) + Django cache.
+- Cache je scoped per lookup/per deň (max 1 externý lookup na rovnaký kľúč za deň).
+- Pri `from-ip` (Slovensko) sa city doplní podľa najbližšej obce ku GPS.
+
+### ENV premenné (geolocation)
+- `GEOCODING_USER_AGENT=pochop.sk-geocoder/1.0`
+- `GEOCODING_TIMEOUT_SECONDS=5`
+- `GEOCODING_MIN_DELAY_SECONDS=1.0`
+- `GEOCODING_MAX_RETRIES=3`
+- `GEOCODING_RETRY_BACKOFF_SECONDS=1.0`
+- `GEOCODING_CACHE_TTL_SECONDS=86400`
+- `GEOCODING_REVERSE_PRECISION=5`
+- `GEOCODING_PROVIDER_CLASS=` (voliteľné, dotted path pre custom provider)
+- `IP_GEO_URL_TEMPLATE=https://ipapi.co/{ip}/json/`
+- `IP_GEO_USER_AGENT=pochop.sk-ipgeo/1.0`
+- `IP_GEO_CONNECT_TIMEOUT_SECONDS=3`
+- `IP_GEO_READ_TIMEOUT_SECONDS=5`
+- `IP_GEO_MAX_RETRIES=3`
+- `IP_GEO_RETRY_BACKOFF_SECONDS=1.0`
+- `IP_GEO_CACHE_TTL_SECONDS=86400`
+
+## Astrologický rozbor okamihu podľa GPS
+- `MomentReport` je cacheovaný per:
+  - `report_date`
+  - `model_ref`
+  - `location_key` (zaokrúhlené `lat/lon`)
+- Verejnú stránku `/okamih/` vieš volať aj s lokalitou:
+  - `/okamih/?lat=48.1486&lon=17.1077&city=Bratislava&country=Slovensko`
+- Ak parametre chýbajú, použije sa default `Bratislava, Slovensko`.
+
+### Frontend snippet (GPS -> reverse, fallback na IP)
+```html
+<script>
+async function detectLocation() {
+  const reverseUrl = '/api/location/reverse';
+  const ipUrl = '/api/location/from-ip';
+
+  const fromIp = async () => {
+    const r = await fetch(ipUrl, { credentials: 'same-origin' });
+    if (r.status === 204) return null;
+    if (!r.ok) return null;
+    return r.json();
+  };
+
+  if (!navigator.geolocation) return fromIp();
+
+  try {
+    const pos = await new Promise((resolve, reject) =>
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: false,
+        timeout: 8000,
+        maximumAge: 300000
+      })
+    );
+
+    const csrf = document.cookie.split('; ').find(x => x.startsWith('csrftoken='))?.split('=')[1] || '';
+    const r = await fetch(reverseUrl, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+      body: JSON.stringify({ lat: pos.coords.latitude, lon: pos.coords.longitude })
+    });
+    if (!r.ok) return fromIp();
+    return r.json();
+  } catch {
+    return fromIp();
+  }
+}
+</script>
+```
+
+### Redis cache (odporúčané)
+V `settings.py` môžeš prepnúť default cache na Redis:
+```python
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/1',
+    }
+}
+```
+
 ## Vercel AI Gateway (Admin katalog modelov)
 - Admin vie zosynchronizovať modely z Vercel AI Gateway do `AI modely`:
   - v Django admine je tlačidlo `Sync Vercel Models` na stránke AI modelov.

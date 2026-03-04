@@ -38,6 +38,25 @@ AI_MODEL_SWITCH_EAGER_USERS_REFRESH = os.environ.get(
 AI_RESPONSE_CACHE_ENABLED = os.environ.get('AI_RESPONSE_CACHE_ENABLED', 'True').lower() in ('true', '1', 'yes')
 AI_RESPONSE_CACHE_TTL_SECONDS = int(os.environ.get('AI_RESPONSE_CACHE_TTL_SECONDS', '86400'))
 
+# Geocoding / location services
+GEOCODING_PROVIDER_CLASS = os.environ.get('GEOCODING_PROVIDER_CLASS', '')
+GEOCODING_USER_AGENT = os.environ.get('GEOCODING_USER_AGENT', 'pochop.sk-geocoder/1.0')
+GEOCODING_LANGUAGE = os.environ.get('GEOCODING_LANGUAGE', 'sk,en')
+GEOCODING_TIMEOUT_SECONDS = float(os.environ.get('GEOCODING_TIMEOUT_SECONDS', '5'))
+GEOCODING_MIN_DELAY_SECONDS = float(os.environ.get('GEOCODING_MIN_DELAY_SECONDS', '1.0'))
+GEOCODING_MAX_RETRIES = int(os.environ.get('GEOCODING_MAX_RETRIES', '3'))
+GEOCODING_RETRY_BACKOFF_SECONDS = float(os.environ.get('GEOCODING_RETRY_BACKOFF_SECONDS', '1.0'))
+GEOCODING_CACHE_TTL_SECONDS = int(os.environ.get('GEOCODING_CACHE_TTL_SECONDS', str(60 * 60 * 24)))
+GEOCODING_REVERSE_PRECISION = int(os.environ.get('GEOCODING_REVERSE_PRECISION', '5'))
+
+IP_GEO_URL_TEMPLATE = os.environ.get('IP_GEO_URL_TEMPLATE', 'https://ipapi.co/{ip}/json/')
+IP_GEO_USER_AGENT = os.environ.get('IP_GEO_USER_AGENT', 'pochop.sk-ipgeo/1.0')
+IP_GEO_CONNECT_TIMEOUT_SECONDS = float(os.environ.get('IP_GEO_CONNECT_TIMEOUT_SECONDS', '3'))
+IP_GEO_READ_TIMEOUT_SECONDS = float(os.environ.get('IP_GEO_READ_TIMEOUT_SECONDS', '5'))
+IP_GEO_MAX_RETRIES = int(os.environ.get('IP_GEO_MAX_RETRIES', '3'))
+IP_GEO_RETRY_BACKOFF_SECONDS = float(os.environ.get('IP_GEO_RETRY_BACKOFF_SECONDS', '1.0'))
+IP_GEO_CACHE_TTL_SECONDS = int(os.environ.get('IP_GEO_CACHE_TTL_SECONDS', str(60 * 60 * 24)))
+
 # E-mail (password reset)
 EMAIL_BACKEND = os.environ.get(
     'EMAIL_BACKEND',

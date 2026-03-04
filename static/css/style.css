@@ -314,23 +314,41 @@ html.starfield-lite .nebula-layer {
     justify-content: center;
     padding: 7px 13px;
     border-radius: 999px;
-    border: 1px solid rgba(205, 158, 255, 0.32);
-    background: linear-gradient(135deg, rgba(164, 101, 246, 0.14), rgba(116, 70, 210, 0.16));
+    border: 1px solid rgba(210, 166, 255, 0.55);
+    background: linear-gradient(135deg, rgba(164, 101, 246, 0.18), rgba(116, 70, 210, 0.2));
     color: #f3ebff;
     font-size: .79rem;
     font-weight: 700;
     letter-spacing: .01em;
     text-decoration: none;
     white-space: nowrap;
-    transition: border-color .2s, transform .2s, box-shadow .2s;
+    box-shadow: 0 8px 22px rgba(140, 78, 220, 0.2);
+    transition: filter .2s;
 }
 .nav-moment-link:hover {
     border-color: rgba(210, 166, 255, 0.55);
-    transform: translateY(-1px);
     box-shadow: 0 8px 22px rgba(140, 78, 220, 0.2);
+    transform: none;
+}
+.nav-moment-link--register-cta {
+    border-color: rgba(255, 255, 255, 0.72);
+    box-shadow:
+        0 10px 26px rgba(140, 78, 220, 0.24),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+.nav-moment-link--register-cta:hover,
+.nav-moment-link--register-cta:focus-visible {
+    border-color: rgba(255, 255, 255, 0.9);
+    box-shadow:
+        0 12px 30px rgba(152, 96, 232, 0.34),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+    filter: brightness(1.03);
 }
 .nav-moment-link--lexikon.is-auto-hidden {
     display: none;
+}
+.nav-ai.is-auto-hidden {
+    display: none !important;
 }
 .nav-ai {
     position: relative;
@@ -440,6 +458,39 @@ html.starfield-lite .nebula-layer {
     filter: drop-shadow(0 0 10px rgba(173, 126, 255, 0.28));
     animation: logoGradientFlow 5.5s ease-in-out infinite;
 }
+.nav-ai--pro .nav-ai-trigger {
+    border-color: rgba(245, 201, 112, 0.55);
+    background:
+        radial-gradient(circle at 18% 0%, rgba(255, 216, 133, 0.26), transparent 58%),
+        linear-gradient(145deg, rgba(58, 37, 14, 0.82), rgba(20, 13, 7, 0.86));
+    box-shadow: 0 12px 30px rgba(116, 83, 21, 0.3), inset 0 1px 0 rgba(255, 237, 185, 0.18);
+}
+.nav-ai--pro .nav-ai-trigger-model {
+    color: #ffe8ad;
+    text-shadow: 0 0 16px rgba(255, 222, 143, 0.28);
+}
+.nav-ai--pro .nav-ai-trigger-arrow {
+    color: rgba(255, 224, 151, 0.9);
+}
+.nav-ai--pro:hover .nav-ai-trigger,
+.nav-ai--pro:focus-within .nav-ai-trigger,
+.nav-ai--pro.is-open .nav-ai-trigger {
+    border-color: rgba(255, 220, 134, 0.85);
+    box-shadow: 0 18px 38px rgba(125, 88, 23, 0.4), 0 0 0 1px rgba(255, 221, 140, 0.22);
+    filter: saturate(1.14);
+}
+.nav-ai--pro:hover .nav-ai-trigger-model,
+.nav-ai--pro:focus-within .nav-ai-trigger-model,
+.nav-ai--pro.is-open .nav-ai-trigger-model {
+    background: linear-gradient(110deg, #fff7dd 10%, #ffd479 32%, #fff4d1 52%, #f6ba48 72%, #fff1bf 90%);
+    background-size: 230% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 10px rgba(255, 211, 117, 0.35));
+    animation: logoGradientFlow 4.8s ease-in-out infinite;
+}
 .nav-ai-dropdown {
     position: absolute;
     right: 0;
@@ -465,6 +516,13 @@ html.starfield-lite .nebula-layer {
     transition: opacity .2s ease, transform .24s ease, max-height .32s ease;
     z-index: 60;
 }
+.nav-ai--pro .nav-ai-dropdown {
+    border-color: rgba(248, 206, 120, 0.42);
+    background:
+        radial-gradient(circle at 18% 0%, rgba(255, 213, 126, 0.24), transparent 58%),
+        linear-gradient(150deg, rgba(38, 25, 12, 0.95), rgba(13, 9, 5, 0.95));
+    box-shadow: 0 26px 72px rgba(16, 10, 4, 0.58), inset 0 1px 0 rgba(255, 229, 162, 0.2);
+}
 .nav-ai-dropdown::before {
     content: "";
     position: absolute;
@@ -472,6 +530,9 @@ html.starfield-lite .nebula-layer {
     border-radius: inherit;
     border: 1px solid rgba(226, 197, 255, 0.14);
     pointer-events: none;
+}
+.nav-ai--pro .nav-ai-dropdown::before {
+    border-color: rgba(255, 223, 146, 0.22);
 }
 .nav-ai:hover .nav-ai-dropdown,
 .nav-ai:focus-within .nav-ai-dropdown,
@@ -548,6 +609,10 @@ html.starfield-lite .nebula-layer {
     transition: opacity .25s ease, transform .25s ease, border-color .22s ease, box-shadow .22s ease;
     transition-delay: calc(var(--stagger, 0) * 55ms);
 }
+.nav-ai--pro .nav-ai-item {
+    border-color: rgba(243, 199, 108, 0.24);
+    background: rgba(35, 23, 11, 0.78);
+}
 .nav-ai:hover .nav-ai-item,
 .nav-ai:focus-within .nav-ai-item,
 .nav-ai.is-open .nav-ai-item {
@@ -557,6 +622,10 @@ html.starfield-lite .nebula-layer {
 .nav-ai-item:hover {
     border-color: rgba(214, 175, 255, 0.44);
     box-shadow: 0 10px 24px rgba(79, 42, 146, 0.24);
+}
+.nav-ai--pro .nav-ai-item:hover {
+    border-color: rgba(255, 218, 134, 0.56);
+    box-shadow: 0 12px 28px rgba(122, 82, 19, 0.32);
 }
 .nav-ai-item--readonly,
 .nav-ai-item--empty {
@@ -582,11 +651,17 @@ html.starfield-lite .nebula-layer {
     font-weight: 700;
     line-height: 1.2;
 }
+.nav-ai--pro .nav-ai-item-label {
+    color: #ffedbf;
+}
 .nav-ai-item-runtime {
     grid-column: 1 / -1;
     color: rgba(209, 187, 239, 0.84);
     font-size: .76rem;
     letter-spacing: .02em;
+}
+.nav-ai--pro .nav-ai-item-runtime {
+    color: rgba(255, 224, 156, 0.82);
 }
 .nav-ai-item-live {
     display: inline-flex;
@@ -609,6 +684,12 @@ html.starfield-lite .nebula-layer {
         radial-gradient(circle at 10% 0%, rgba(169, 119, 252, 0.26), transparent 55%),
         rgba(18, 13, 32, 0.72);
 }
+.nav-ai--pro .nav-ai-item.is-active {
+    border-color: rgba(250, 208, 119, 0.48);
+    background:
+        radial-gradient(circle at 10% 0%, rgba(255, 212, 125, 0.25), transparent 58%),
+        rgba(37, 24, 11, 0.86);
+}
 .nav-ai-item.is-active .nav-ai-item-label {
     background: linear-gradient(112deg, #f9f1ff 12%, #dbc8ff 36%, #ffffff 52%, #c7a8ff 70%, #f9f1ff 90%);
     background-size: 220% 100%;
@@ -618,9 +699,19 @@ html.starfield-lite .nebula-layer {
     -webkit-text-fill-color: transparent;
     animation: logoGradientFlow 6.2s ease-in-out infinite;
 }
+.nav-ai--pro .nav-ai-item.is-active .nav-ai-item-label {
+    background: linear-gradient(110deg, #fff7dd 10%, #ffd479 32%, #fff4d1 52%, #f6ba48 72%, #fff1bf 90%);
+    background-size: 230% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: logoGradientFlow 5.3s ease-in-out infinite;
+}
 .nav-links { display: flex; gap: 16px; align-items: center; }
-.nav-links a { color: var(--tx-2); text-decoration: none; font-size: 0.85rem; font-weight: 500; transition: color .15s; }
-.nav-links a:hover { color: var(--tx-1); }
+.nav-links a { text-decoration: none; }
+.nav-links a:not(.nav-moment-link) { color: var(--tx-2); font-size: 0.85rem; font-weight: 500; transition: color .15s; }
+.nav-links a:not(.nav-moment-link):hover { color: var(--tx-1); }
 .nav-user { color: var(--tx-3); font-size: .82rem; }
 .nav-btn {
     padding: 6px 14px; border-radius: 100px; font-size: .82rem; font-weight: 600;
@@ -1370,8 +1461,15 @@ html.starfield-lite .nebula-layer {
 .moment-layout {
     display: grid;
     grid-template-columns: 1.2fr .8fr;
-    gap: 18px;
-    margin-bottom: 18px;
+    align-items: start;
+    gap: 14px;
+    margin-bottom: 0;
+}
+.moment-main-column {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
 .moment-card {
     border-radius: 20px;
@@ -1386,16 +1484,16 @@ html.starfield-lite .nebula-layer {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 18px 18px 8px;
+    padding: 14px 16px 6px;
 }
 .moment-card h2 {
     font-family: var(--font-d);
-    font-size: calc(1rem + 1px);
+    font-size: 1.12rem;
     color: #ffffff;
     text-shadow: 0 1px 0 rgba(0, 0, 0, 0.72), 0 5px 14px rgba(0, 0, 0, 0.58);
 }
 .moment-wheel-wrap {
-    padding: 8px 10px 20px;
+    padding: 6px 10px 10px;
     position: relative;
 }
 .moment-wheel-svg {
@@ -1488,7 +1586,7 @@ html.starfield-lite .nebula-layer {
 }
 
 .moment-card--report {
-    padding: 16px 16px 18px;
+    padding: 14px 14px 16px;
 }
 .moment-report-head {
     display: flex;
@@ -1504,32 +1602,32 @@ html.starfield-lite .nebula-layer {
 }
 .moment-energy {
     color: rgba(231, 220, 250, 0.86);
-    font-size: .92rem;
-    line-height: 1.6;
-    margin-bottom: 14px;
+    font-size: 1rem;
+    line-height: 1.5;
+    margin-bottom: 12px;
 }
 .moment-list-block {
-    margin-top: 10px;
+    margin-top: 8px;
 }
 .moment-list-block h3 {
-    font-size: .8rem;
+    font-size: .84rem;
     text-transform: uppercase;
     letter-spacing: .05em;
     color: rgba(210, 186, 243, 0.8);
-    margin-bottom: 8px;
+    margin-bottom: 6px;
 }
 .moment-list-block ul {
     list-style: none;
     display: flex;
     flex-direction: column;
-    gap: 7px;
+    gap: 6px;
 }
 .moment-list-block li {
     position: relative;
-    padding-left: 16px;
+    padding-left: 15px;
     color: rgba(228, 215, 246, 0.85);
-    font-size: .88rem;
-    line-height: 1.45;
+    font-size: .95rem;
+    line-height: 1.4;
 }
 .moment-list-block li::before {
     content: "";
@@ -1543,23 +1641,23 @@ html.starfield-lite .nebula-layer {
 }
 
 .moment-card--aspects {
-    padding: 16px;
+    padding: 12px;
 }
 .moment-updated {
     color: rgba(194, 176, 220, 0.72);
-    font-size: .75rem;
+    font-size: .82rem;
 }
 .moment-aspects-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
+    grid-template-columns: 1fr;
+    gap: 8px;
 }
 .moment-aspect {
     display: block;
     text-decoration: none;
     color: inherit;
-    border-radius: 14px;
-    padding: 12px 12px 10px;
+    border-radius: 12px;
+    padding: 10px 11px 9px;
     border: 1px solid rgba(198, 154, 255, 0.18);
     background: rgba(19, 14, 31, 0.58);
     box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
@@ -1578,20 +1676,77 @@ html.starfield-lite .nebula-layer {
     justify-content: space-between;
     align-items: center;
     gap: 8px;
-    margin-bottom: 6px;
+    margin-bottom: 5px;
+}
+.moment-aspect-headline {
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
 }
 .moment-aspect-symbols {
     color: #f0e3ff;
-    font-size: .95rem;
+    font-size: 1.02rem;
+    cursor: help;
+}
+.moment-aspect-effect {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(187, 143, 255, 0.32);
+    color: rgba(232, 215, 250, 0.9);
+    background: rgba(86, 56, 138, 0.32);
+    font-size: .68rem;
+    font-weight: 700;
+    text-transform: lowercase;
+    letter-spacing: .03em;
+    white-space: nowrap;
+}
+.moment-aspect-effect--positive {
+    border-color: rgba(90, 222, 162, 0.46);
+    color: #b8f5dc;
+    background: rgba(27, 102, 73, 0.42);
+}
+.moment-aspect-effect--negative {
+    border-color: rgba(255, 108, 153, 0.5);
+    color: #ffc3d7;
+    background: rgba(120, 42, 70, 0.42);
+}
+.moment-aspect-effect--neutral {
+    border-color: rgba(187, 142, 255, 0.44);
+    color: #e2cfff;
+    background: rgba(76, 51, 131, 0.42);
 }
 .moment-aspect-orb {
-    font-size: .7rem;
+    font-size: .78rem;
     color: rgba(203, 185, 227, 0.78);
 }
 .moment-aspect h4 {
-    font-size: .82rem;
+    font-size: .95rem;
     color: rgba(225, 209, 246, 0.86);
-    line-height: 1.35;
+    line-height: 1.28;
+    margin: 0;
+}
+.moment-aspect-text {
+    margin: 6px 0 0;
+    padding: 4px 7px;
+    border-radius: 6px;
+    background: rgba(109, 76, 190, 0.36);
+    color: rgba(242, 232, 255, 0.95);
+    font-size: .9rem;
+    line-height: 1.34;
+    display: block;
+    overflow: visible;
+    white-space: normal;
+}
+.moment-aspect--positive .moment-aspect-text {
+    background: rgba(31, 120, 84, 0.34);
+}
+.moment-aspect--negative .moment-aspect-text {
+    background: rgba(118, 43, 68, 0.34);
 }
 .moment-aspect--positive {
     border-color: rgba(90, 222, 162, 0.38);

@@ -8,7 +8,7 @@ SERVICE_NAME="${POCHOP_SERVICE_NAME:-pochop.service}"
 
 WITH_MIGRATE=0
 WITH_MOMENT=0
-WITH_AI_WARMUP=1
+WITH_AI_WARMUP=0
 
 usage() {
   cat <<'EOF'
@@ -67,13 +67,7 @@ if [ "$WITH_MIGRATE" -eq 1 ]; then
   echo "$(step_label "$step") Migrations..."
   "$PYTHON_BIN" manage.py migrate --noinput
 else
-  PENDING_MIGRATIONS="$("$PYTHON_BIN" manage.py showmigrations --plan | grep '\[ \]' || true)"
-  if [ -n "$PENDING_MIGRATIONS" ]; then
-    echo "$(step_label "$step") Pending migrations detected, applying to prevent runtime 500s..."
-    "$PYTHON_BIN" manage.py migrate --noinput
-  else
-    echo "$(step_label "$step") Migrations skipped (no pending migrations)."
-  fi
+  echo "$(step_label "$step") Migrations skipped (use --with-migrate if needed)."
 fi
 step=$((step + 1))
 
@@ -106,34 +100,5 @@ else
   echo "systemctl not found, service restart skipped."
 fi
 step=$((step + 1))
-
-if [ "$WITH_AI_WARMUP" -eq 1 ]; then
-  WARMUP_PROFILE_SCOPE="${AI_WARMUP_PROFILE_SCOPE:-all}"
-  WARMUP_DAYS="${AI_WARMUP_DAYS:-0,1,2}"
-  WARMUP_MOMENT_DAYS="${AI_WARMUP_MOMENT_DAYS:-0,1}"
-  WARMUP_MAX_PROFILES="${AI_WARMUP_MAX_PROFILES:-0}"
-
-  echo "$(step_label "$step") Sync Vercel model catalog..."
-  "$PYTHON_BIN" manage.py sync_vercel_models --keep-missing
-
-  echo "Prewarm AI caches (day compare, natal compare, global natal, moment)..."
-  WARMUP_CMD=(
-    "$PYTHON_BIN" manage.py refresh_to_cache
-    --profiles "$WARMUP_PROFILE_SCOPE"
-    --days "$WARMUP_DAYS"
-    --with-global-natal
-    --with-moment
-    --moment-days "$WARMUP_MOMENT_DAYS"
-  )
-  if [ "$WARMUP_MAX_PROFILES" -gt 0 ]; then
-    WARMUP_CMD+=(--max-profiles "$WARMUP_MAX_PROFILES")
-  fi
-  "${WARMUP_CMD[@]}"
-fi
-
-if [ "$WITH_MOMENT" -eq 1 ]; then
-  echo "[extra] Regenerating moment report..."
-  "$PYTHON_BIN" manage.py generate_moment_report --force --email-admin || true
-fi
 
 echo "Refresh done."

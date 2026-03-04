@@ -52,25 +52,14 @@
     <div class="ai-panel" id="aiPanel">
         <div class="ai-panel-border"></div>
         <div class="ai-panel-inner">
-            <div class="ai-panel-header">
-                <span class="ai-icon">&#10024;</span>
-                <h3 class="ai-panel-title">AI Hodnotenie dňa</h3>
-                <div class="ai-head-meta">
-                    <span class="ai-badge ai-badge--model" id="aiModelBadge">{{ active_ai_model_badge }}</span>
-                    <span class="ai-generated-at" id="aiGeneratedAt">Pripojenie</span>
-                </div>
-            </div>
+            
 
             {% if compare_ai_models %}
             <div class="ai-compare-controls" id="aiCompareControls">
                 <div class="ai-compare-head">
-                    <span class="ai-compare-label">Porovnanie modelov</span>
+                    <span class="ai-icon">&#10024;<h5>Porovnanie modelov</h5></span>
+                    <span class="ai-rating-num"></span>
                     <span class="ai-compare-hint" id="aiCompareHint">
-                        {% if compare_model_limit > 1 %}
-                            Klikni pre prepnutie, vyber 1-{{ compare_model_limit }} pre porovnanie
-                        {% else %}
-                            Klikni pre prepnutie modelu
-                        {% endif %}
                     </span>
                 </div>
                 <div class="ai-compare-chips" id="aiCompareChips">
@@ -96,7 +85,7 @@
                 <div class="ai-progress-steps" id="aiProgressSteps">
                     <span class="ai-progress-step" data-step="connect">Pripojenie</span>
                     <span class="ai-progress-step" data-step="prompt">AI volanie - zadavanie promptu na mieru</span>
-                    <span class="ai-progress-step" data-step="cache">Cache-vanie</span>
+                    <span class="ai-progress-step" data-step="cache">Generovanie...</span>
                 </div>
             </div>
 
@@ -478,9 +467,7 @@ function selectDay(dayIdx) {
 // ───── AI hodnotenie dňa ─────
 const PROFILE_ID = {{ profile.pk }};
 const AI_COMPARE_MAX_MODELS = Math.max(1, {{ compare_model_limit|default:3 }});
-const AI_COMPARE_HINT_DEFAULT = AI_COMPARE_MAX_MODELS > 1
-    ? `Klikni pre prepnutie, vyber 1-${AI_COMPARE_MAX_MODELS} pre porovnanie`
-    : 'Klikni pre prepnutie modelu';
+const AI_COMPARE_HINT_DEFAULT = "";
 let aiAbortCtrl = null;
 let aiProgressTimer = null;
 const aiProgressWrap = document.getElementById('aiProgressWrap');

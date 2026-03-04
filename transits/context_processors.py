@@ -41,6 +41,31 @@ def _build_dropdown_item(label, model_ref, active_key):
     }
 
 
+def _clean_model_badge_label(label):
+    cleaned = (label or '').strip()
+    if not cleaned:
+        return ''
+    provider_prefix = 'vercel ai gateway '
+    if cleaned.lower().startswith(provider_prefix):
+        return cleaned[len(provider_prefix):].strip()
+    return cleaned
+
+
+def _resolve_active_model_label(active, dropdown_models):
+    active_item = next((item for item in dropdown_models if item.get('is_active')), None)
+    if active_item and active_item.get('label'):
+        return _clean_model_badge_label(active_item.get('label'))
+
+    model_label = _clean_model_badge_label(active.get('model'))
+    if model_label:
+        return model_label
+
+    badge_label = _clean_model_badge_label(active.get('badge'))
+    if badge_label:
+        return badge_label
+    return 'AI model'
+
+
 def _get_header_models(active_key, user=None):
     rows = []
     try:
@@ -94,8 +119,9 @@ def ai_runtime_context(request):
     if active_model_key and not any(item.get('is_active') for item in ai_dropdown_models):
         ai_dropdown_models.insert(
             0,
-            _build_dropdown_item(active.get('badge'), active_model_key, active_model_key),
+            _build_dropdown_item(active.get('model'), active_model_key, active_model_key),
         )
+    active_ai_model_label = _resolve_active_model_label(active, ai_dropdown_models)
     ai_dropdown_options = [item for item in ai_dropdown_models if not item.get('is_active')]
     can_switch_ai_model = user_can_switch_ai_model(req_user)
     has_pro_account = user_has_pro_account(req_user)
@@ -104,6 +130,7 @@ def ai_runtime_context(request):
         'active_ai_provider_label': active['provider_label'],
         'active_ai_model': active['model'],
         'active_ai_model_badge': active['badge'],
+        'active_ai_model_label': active_ai_model_label,
         'active_ai_model_key': active_model_key,
         'ai_dropdown_models': ai_dropdown_models,
         'ai_dropdown_options': ai_dropdown_options,

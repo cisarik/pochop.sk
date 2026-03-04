@@ -13,6 +13,7 @@ from .gemini_utils import (
     has_ai_key,
 )
 from .models import ASPECT_SYMBOLS, PLANET_SYMBOLS, MomentReport
+from .transit_data import TRANSIT_DATA
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +21,26 @@ MOMENT_TZ = 'Europe/Bratislava'
 MOMENT_LOCATION_NAME = 'Bratislava, Slovensko'
 MOMENT_LAT = 48.1486
 MOMENT_LON = 17.1077
+MOMENT_LOCATION_PRECISION = 4
+MOMENT_DEFAULT_LOCATION_KEY = f"{MOMENT_LAT:.{MOMENT_LOCATION_PRECISION}f}:{MOMENT_LON:.{MOMENT_LOCATION_PRECISION}f}"
 MOMENT_ASPECT_ORB = 4.0
+MOMENT_FALLBACK_ASPECT_TEXT = {
+    'conjunction': 'Silná koncentrácia energie - tému treba uchopiť vedome a prakticky.',
+    'sextile': 'Podporný aspekt prináša príležitosť, ktorú je dobré aktívne využiť.',
+    'square': 'Napätie tlačí na zmenu návykov a konkrétne rozhodnutie.',
+    'trine': 'Plynulý tok energie podporuje ľahší progres v tejto oblasti.',
+    'opposition': 'Polarita ukazuje dve strany témy - cieľom je nájsť rovnováhu.',
+}
+MOMENT_ASPECT_TEXT_MAP = {
+    (str(transit), str(natal), str(aspect)): str(text).strip()
+    for transit, natal, aspect, _effect, text in TRANSIT_DATA
+    if str(text or '').strip()
+}
 
 MOMENT_SYSTEM_PROMPT = """Si senior astrológ so znalosťou tranzitov, planét, aspektov, uhlov horoskopu a praktickej dennej interpretácie.
 
 PRAVIDLÁ:
-- Pracuj striktne s dodanými dátami pre lokalitu Bratislava.
+- Pracuj striktne s dodanými dátami pre dodanú lokalitu.
 - Buď konkrétny, praktický, bez klišé.
 - Zohľadni povahu planét, typ aspektov, orb a okamihové uhly (ASC/MC).
 
@@ -61,6 +76,56 @@ def _attach_runtime_meta(report_obj, *, cache_hit, model_ref, model_ctx):
     return report_obj
 
 
+def build_moment_location_payload(
+    *,
+    lat: float | None = None,
+    lon: float | None = None,
+    city: str = '',
+    country: str = '',
+    name: str = '',
+    timezone_name: str = MOMENT_TZ,
+):
+    try:
+        lat_val = float(lat) if lat is not None else float(MOMENT_LAT)
+        lon_val = float(lon) if lon is not None else float(MOMENT_LON)
+    except (TypeError, ValueError):
+        lat_val = float(MOMENT_LAT)
+        lon_val = float(MOMENT_LON)
+
+    if not (-90.0 <= lat_val <= 90.0):
+        lat_val = float(MOMENT_LAT)
+    if not (-180.0 <= lon_val <= 180.0):
+        lon_val = float(MOMENT_LON)
+
+    city_clean = ' '.join(str(city or '').strip().split())
+    country_clean = ' '.join(str(country or '').strip().split())
+    name_clean = ' '.join(str(name or '').strip().split())
+    if not name_clean:
+        if city_clean and country_clean:
+            name_clean = f"{city_clean}, {country_clean}"
+        elif city_clean:
+            name_clean = city_clean
+        elif country_clean:
+            name_clean = country_clean
+        else:
+            name_clean = MOMENT_LOCATION_NAME
+
+    location_key = (
+        f"{lat_val:.{MOMENT_LOCATION_PRECISION}f}:"
+        f"{lon_val:.{MOMENT_LOCATION_PRECISION}f}"
+    )
+
+    return {
+        'name': name_clean,
+        'city': city_clean,
+        'country': country_clean,
+        'lat': lat_val,
+        'lon': lon_val,
+        'timezone': timezone_name or MOMENT_TZ,
+        'key': location_key,
+    }
+
+
 def _planet_name_sk(key):
     return {
         'sun': 'Slnko',
@@ -74,6 +139,37 @@ def _planet_name_sk(key):
         'neptune': 'Neptún',
         'pluto': 'Pluto',
     }.get(key, key)
+
+
+def _lookup_moment_aspect_text(planet1, planet2, aspect_key):
+    direct = MOMENT_ASPECT_TEXT_MAP.get((planet1, planet2, aspect_key), '')
+    if direct:
+        return direct
+    reverse = MOMENT_ASPECT_TEXT_MAP.get((planet2, planet1, aspect_key), '')
+    if reverse:
+        return reverse
+    return MOMENT_FALLBACK_ASPECT_TEXT.get(aspect_key, '')
+
+
+def enrich_moment_aspects_with_text(aspects):
+    if not isinstance(aspects, list):
+        return []
+
+    enriched = []
+    for item in aspects:
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        text = str(row.get('text') or '').strip()
+        if not text:
+            text = _lookup_moment_aspect_text(
+                str(row.get('planet1') or '').strip().lower(),
+                str(row.get('planet2') or '').strip().lower(),
+                str(row.get('aspect') or '').strip().lower(),
+            )
+        row['text'] = text
+        enriched.append(row)
+    return enriched
 
 
 def calculate_moment_snapshot(snapshot_dt=None, timezone=MOMENT_TZ):
@@ -108,14 +204,14 @@ def calculate_moment_snapshot(snapshot_dt=None, timezone=MOMENT_TZ):
     return planets
 
 
-def calculate_moment_angles(snapshot_dt, timezone=MOMENT_TZ):
+def calculate_moment_angles(snapshot_dt, *, lat=MOMENT_LAT, lon=MOMENT_LON, timezone=MOMENT_TZ):
     tz = pytz.timezone(timezone)
     if snapshot_dt.tzinfo is None:
         snapshot_dt = tz.localize(snapshot_dt)
     else:
         snapshot_dt = snapshot_dt.astimezone(tz)
     jd = datetime_to_jd(snapshot_dt.astimezone(pytz.UTC))
-    houses_data = swe.houses(jd, MOMENT_LAT, MOMENT_LON, b'P')
+    houses_data = swe.houses(jd, float(lat), float(lon), b'P')
     ascmc = houses_data[1]
     asc_lon = ascmc[0]
     mc_lon = ascmc[1]
@@ -170,17 +266,18 @@ def calculate_moment_aspects(planets):
                     'aspect_name_sk': ASPECT_NAMES_SK.get(asp_key, asp_key),
                     'orb': round(float(orb_val), 2),
                     'effect': effect,
+                    'text': _lookup_moment_aspect_text(p1['key'], p2['key'], asp_key),
                 })
                 break
     aspects.sort(key=lambda x: x['orb'])
     return aspects
 
 
-def _build_moment_prompt(target_date, planets, aspects, angles):
+def _build_moment_prompt(target_date, planets, aspects, angles, location):
     lines = [
         f"Dátum reportu: {target_date.strftime('%d.%m.%Y')}",
-        f"Lokalita: {MOMENT_LOCATION_NAME} ({MOMENT_LAT}, {MOMENT_LON})",
-        f"Časové pásmo: {MOMENT_TZ}",
+        f"Lokalita: {location['name']} ({location['lat']}, {location['lon']})",
+        f"Časové pásmo: {location['timezone']}",
         (
             f"Ascendent okamihu: {angles['ascendant']['degree']}° {angles['ascendant']['sign']} "
             f"{angles['ascendant']['symbol']}; "
@@ -204,7 +301,7 @@ def _build_moment_prompt(target_date, planets, aspects, angles):
     else:
         lines.append("- Dnes nie sú výrazné tesné aspekty.")
     lines.append("")
-    lines.append("Vytvor verejný denný rozbor okamihu pre Bratislavu a vráť len validný JSON.")
+    lines.append("Vytvor verejný denný rozbor okamihu pre zadanú lokalitu a vráť len validný JSON.")
     return "\n".join(lines)
 
 
@@ -307,12 +404,12 @@ def _parse_moment_response(payload):
     return result
 
 
-def _generate_ai_moment_report(report_date, planets, aspects, angles, model_name=None):
+def _generate_ai_moment_report(report_date, planets, aspects, angles, location, model_name=None):
     active_model = get_gemini_model(model_name)
     if not _has_gemini_key(model_name=active_model):
         return _fallback_report(aspects)
     try:
-        prompt = _build_moment_prompt(report_date, planets, aspects, angles)
+        prompt = _build_moment_prompt(report_date, planets, aspects, angles, location)
         text = generate_gemini_text(
             model_name=active_model,
             contents=prompt,
@@ -338,7 +435,13 @@ def _generate_ai_moment_report(report_date, planets, aspects, angles, model_name
         return _fallback_report(aspects)
 
 
-def get_or_generate_moment_report(report_date=None, force=False, timezone=MOMENT_TZ, model_name=None):
+def get_or_generate_moment_report(
+    report_date=None,
+    force=False,
+    timezone=MOMENT_TZ,
+    model_name=None,
+    location=None,
+):
     tz = pytz.timezone(timezone)
     if report_date is None:
         report_date = datetime.now(tz).date()
@@ -350,11 +453,20 @@ def get_or_generate_moment_report(report_date=None, force=False, timezone=MOMENT
     active_model = get_gemini_model(model_name)
     active_model_ctx = get_active_model_context(model_name=active_model)
     normalized_model_ref = _normalize_moment_model_ref(active_model_ctx)
+    location_payload = build_moment_location_payload(
+        lat=(location or {}).get('lat') if isinstance(location, dict) else None,
+        lon=(location or {}).get('lon') if isinstance(location, dict) else None,
+        city=(location or {}).get('city', '') if isinstance(location, dict) else '',
+        country=(location or {}).get('country', '') if isinstance(location, dict) else '',
+        name=(location or {}).get('name', '') if isinstance(location, dict) else '',
+        timezone_name=timezone,
+    )
 
     if not force:
         existing = MomentReport.objects.filter(
             report_date=report_date,
             model_ref=normalized_model_ref,
+            location_key=location_payload['key'],
         ).first()
         if existing:
             return _attach_runtime_meta(
@@ -366,14 +478,26 @@ def get_or_generate_moment_report(report_date=None, force=False, timezone=MOMENT
 
     snapshot_dt = tz.localize(datetime.combine(report_date, time(12, 0)))
     planets = calculate_moment_snapshot(snapshot_dt=snapshot_dt, timezone=timezone)
-    angles = calculate_moment_angles(snapshot_dt=snapshot_dt, timezone=timezone)
-    aspects = calculate_moment_aspects(planets)
-    ai_report = _generate_ai_moment_report(report_date, planets, aspects, angles, model_name=active_model)
+    angles = calculate_moment_angles(
+        snapshot_dt=snapshot_dt,
+        lat=location_payload['lat'],
+        lon=location_payload['lon'],
+        timezone=timezone,
+    )
+    aspects = enrich_moment_aspects_with_text(calculate_moment_aspects(planets))
+    ai_report = _generate_ai_moment_report(
+        report_date,
+        planets,
+        aspects,
+        angles,
+        location_payload,
+        model_name=active_model,
+    )
     ai_report['location'] = {
-        'name': MOMENT_LOCATION_NAME,
-        'lat': MOMENT_LAT,
-        'lon': MOMENT_LON,
-        'timezone': MOMENT_TZ,
+        'name': location_payload['name'],
+        'lat': location_payload['lat'],
+        'lon': location_payload['lon'],
+        'timezone': location_payload['timezone'],
     }
     ai_report['angles'] = angles
     ai_report['model_ref'] = normalized_model_ref
@@ -382,8 +506,13 @@ def get_or_generate_moment_report(report_date=None, force=False, timezone=MOMENT
     obj, _ = MomentReport.objects.update_or_create(
         report_date=report_date,
         model_ref=normalized_model_ref,
+        location_key=location_payload['key'],
         defaults={
             'model_ref': normalized_model_ref,
+            'location_key': location_payload['key'],
+            'location_name': location_payload['name'],
+            'location_lat': location_payload['lat'],
+            'location_lon': location_payload['lon'],
             'timezone': timezone,
             'planets_json': planets,
             'aspects_json': aspects,

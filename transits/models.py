@@ -480,6 +480,21 @@ class MomentReport(models.Model):
         db_index=True,
         help_text='Normalizovaný model_ref (napr. openai:gpt-5.2).',
     )
+    location_key = models.CharField(
+        'Location key',
+        max_length=64,
+        default='48.1486:17.1077',
+        db_index=True,
+        help_text='Normalizovaný kľúč lokality pre cache (zaokrúhlené lat/lon).',
+    )
+    location_name = models.CharField(
+        'Lokalita',
+        max_length=160,
+        default='Bratislava, Slovensko',
+        help_text='Textový názov lokality použitý v reporte.',
+    )
+    location_lat = models.FloatField('Zemepisná šírka', default=48.1486)
+    location_lon = models.FloatField('Zemepisná dĺžka', default=17.1077)
     timezone = models.CharField('Časové pásmo', max_length=50, default='Europe/Bratislava')
     generated_at = models.DateTimeField('Generované', auto_now_add=True)
     updated_at = models.DateTimeField('Aktualizované', auto_now=True)
@@ -494,17 +509,17 @@ class MomentReport(models.Model):
         ordering = ['-report_date']
         constraints = [
             models.UniqueConstraint(
-                fields=['report_date', 'model_ref'],
-                name='uniq_moment_report_date_model',
+                fields=['report_date', 'model_ref', 'location_key'],
+                name='uniq_moment_report_date_model_location',
             ),
         ]
         indexes = [
-            models.Index(fields=['report_date', 'model_ref']),
+            models.Index(fields=['report_date', 'model_ref', 'location_key']),
         ]
 
     def __str__(self):
         model = self.model_ref or 'default'
-        return f"Okamih {self.report_date.strftime('%d.%m.%Y')} [{model}]"
+        return f"Okamih {self.report_date.strftime('%d.%m.%Y')} [{model}] @ {self.location_key}"
 
 
 class GeminiConfig(models.Model):
@@ -632,6 +647,45 @@ class AIResponseCache(models.Model):
 
     def __str__(self):
         return f"{self.provider}:{self.model_name} [{self.cache_key[:10]}...]"
+
+
+class LocationLookupCache(models.Model):
+    """Denná cache geolokačných lookupov (reverse/forward/ip)."""
+
+    LOOKUP_TYPE_CHOICES = [
+        ('reverse', 'Reverse geocoding'),
+        ('forward', 'Forward geocoding'),
+        ('ip', 'IP geolocation'),
+    ]
+
+    lookup_type = models.CharField('Typ lookupu', max_length=20, choices=LOOKUP_TYPE_CHOICES, db_index=True)
+    lookup_key = models.CharField('Lookup key', max_length=100, db_index=True)
+    cache_day = models.DateField('Cache deň', db_index=True)
+    provider = models.CharField('Provider', max_length=40, blank=True, default='')
+    payload_json = models.JSONField('Payload', default=dict)
+    hits = models.PositiveIntegerField('Počet cache hitov', default=0)
+    generated_at = models.DateTimeField('Generované', auto_now_add=True)
+    last_served_at = models.DateTimeField('Naposledy servované', null=True, blank=True)
+    expires_at = models.DateTimeField('Expirácia', db_index=True)
+    created_at = models.DateTimeField('Vytvorené', auto_now_add=True)
+    updated_at = models.DateTimeField('Aktualizované', auto_now=True)
+
+    class Meta:
+        verbose_name = 'Location lookup cache'
+        verbose_name_plural = 'Location lookup cache'
+        ordering = ['-cache_day', '-updated_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['lookup_type', 'lookup_key', 'cache_day'],
+                name='uniq_location_lookup_type_key_day',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['lookup_type', 'cache_day', 'expires_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.lookup_type}:{self.lookup_key[:16]}... [{self.cache_day}]"
 
 
 class AIDayReportCache(models.Model):

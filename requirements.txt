@@ -2,6 +2,7 @@ django>=6.0
 pyswisseph>=2.10
 pytz>=2025.1
 geopy>=2.4
+requests>=2.31
 timezonefinder>=8.2
 numpy>=2.4
 openai>=1.0

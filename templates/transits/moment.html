@@ -9,22 +9,28 @@
         <!-- <p class="moment-kicker">Verejný denný prehľad</p> -->
         <h1>Astrologický rozbor okamihu</h1>
         <p class="moment-date">{{ report_date|date:"j. n. Y" }}</p>
-        <p class="moment-date">Bratislava (48.1486, 17.1077)</p>
-        {% if moment_ai_model_badge %}
-            <p class="moment-date"><span class="ai-badge">{{ moment_ai_model_badge }}</span>{% if moment_cache_hit %} • cache{% endif %}</p>
-        {% endif %}
+        <p class="moment-date">{{ moment_location_name }} ({{ moment_location_lat }}, {{ moment_location_lon }})</p>
     </div>
 
     <div class="moment-layout">
-        <article class="moment-card moment-card--chart">
-            <div class="moment-card-top">
-                <h2>Aktuálne planetárne usporiadanie</h2>
-            </div>
-            <div class="moment-wheel-wrap">
-                <svg id="momentWheel" class="moment-wheel-svg" viewBox="0 0 620 620" role="img" aria-label="Planetárne usporiadanie"></svg>
-                <div id="momentWheelTip" class="wheel-tip" aria-hidden="true"></div>
-            </div>
-        </article>
+        <div class="moment-main-column">
+            <article class="moment-card moment-card--chart">
+                <div class="moment-card-top">
+                    <h2>Aktuálne planetárne usporiadanie</h2>
+                </div>
+                <div class="moment-wheel-wrap">
+                    <svg id="momentWheel" class="moment-wheel-svg" viewBox="0 0 620 620" role="img" aria-label="Planetárne usporiadanie"></svg>
+                    <div id="momentWheelTip" class="wheel-tip" aria-hidden="true"></div>
+                </div>
+            </article>
+
+            <article class="moment-card moment-card--aspects">
+                <div class="moment-card-top">
+                    <h2>Kľúčové aspekty momentu {{ moment_generated_at|date:"j. n. Y H:i" }}</h2>
+                </div>
+                <div id="momentAspects" class="moment-aspects-grid"></div>
+            </article>
+        </div>
 
         <article class="moment-card moment-card--report">
             <div class="moment-report-head">
@@ -47,14 +53,6 @@
             </section>
         </article>
     </div>
-
-    <article class="moment-card moment-card--aspects">
-        <div class="moment-card-top">
-            <h2>Kľúčové aspekty dňa</h2>
-            <p class="moment-updated">Aktualizované: {{ moment_generated_at|date:"j. n. Y H:i" }}</p>
-        </div>
-        <div id="momentAspects" class="moment-aspects-grid"></div>
-    </article>
 </section>
 {% endblock %}
 
@@ -80,6 +78,13 @@
     score.textContent = `${ai.rating || 6}/10`;
     energy.textContent = ai.energy || '';
 
+    const escapeHtml = (value) => String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
     function fillList(id, items) {
         const root = document.getElementById(id);
         root.innerHTML = '';
@@ -96,18 +101,40 @@
     const aspectsRoot = document.getElementById('momentAspects');
     aspectsRoot.innerHTML = '';
     aspects.slice(0, 12).forEach((a) => {
+        const aspectTitle = `${a.aspect_name_sk} ${a.planet1_name_sk} - ${a.planet2_name_sk}`;
+        const effectLabel = (
+            a.effect === 'positive'
+                ? 'pozitívne'
+                : a.effect === 'negative'
+                    ? 'negatívne'
+                    : 'neutrálne'
+        );
+        const explanation = String(a.text || '').trim();
+        const fallbackExplanation = (
+            a.effect === 'positive'
+                ? 'Podporný vplyv: využi momentum a urob konkrétny krok.'
+                : a.effect === 'negative'
+                    ? 'Napätie v téme: spomaľ, drž hranice a reaguj vecne.'
+                    : 'Neutrálny vplyv: drž sa jasných priorít a stabilného tempa.'
+        );
+        const aspectText = explanation || fallbackExplanation;
         const card = document.createElement('a');
         card.className = `moment-aspect moment-aspect--${a.effect}`;
         const detailUrl = new URL(lexikonUrl, window.location.origin);
         detailUrl.searchParams.set('transit', `${a.planet1}-${a.aspect}-${a.planet2}`);
         card.href = detailUrl.toString();
-        card.setAttribute('aria-label', `Otvoriť lexikón: ${a.aspect_name_sk} ${a.planet1_name_sk} - ${a.planet2_name_sk}`);
+        card.setAttribute('aria-label', `Otvoriť lexikón: ${aspectTitle}`);
         card.innerHTML = `
             <div class="moment-aspect-top">
-                <div class="moment-aspect-symbols">${a.planet1_symbol} ${a.aspect_symbol} ${a.planet2_symbol}</div>
-                <span class="moment-aspect-orb">orb ${a.orb}&deg;</span>
+                <div class="moment-aspect-headline">
+                    <div class="moment-aspect-symbols" title="${escapeHtml(aspectTitle)}" aria-label="${escapeHtml(aspectTitle)}">
+                        ${escapeHtml(a.planet1_symbol)} ${escapeHtml(a.aspect_symbol)} ${escapeHtml(a.planet2_symbol)}
+                    </div>
+                    <span class="moment-aspect-effect moment-aspect-effect--${escapeHtml(a.effect)}">${escapeHtml(effectLabel)}</span>
+                </div>
+                <span class="moment-aspect-orb">orb ${escapeHtml(a.orb)}&deg;</span>
             </div>
-            <h4>${a.aspect_name_sk} ${a.planet1_name_sk} - ${a.planet2_name_sk}</h4>
+            <p class="moment-aspect-text">${escapeHtml(aspectText)}</p>
         `;
         aspectsRoot.appendChild(card);
     });

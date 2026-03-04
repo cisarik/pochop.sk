@@ -19,6 +19,7 @@ from .models import (
     GeminiDailyUsage,
     AIModelOption,
     AIResponseCache,
+    LocationLookupCache,
     AIDayReportCache,
     AIDayReportDailyStat,
     AINatalAnalysisCache,
@@ -160,9 +161,9 @@ class SlovakCityAdmin(admin.ModelAdmin):
 
 @admin.register(MomentReport)
 class MomentReportAdmin(admin.ModelAdmin):
-    list_display = ['report_date', 'model_ref', 'timezone', 'updated_at']
+    list_display = ['report_date', 'model_ref', 'location_name', 'location_key', 'timezone', 'updated_at']
     list_filter = ['model_ref', 'timezone']
-    search_fields = ['report_date', 'model_ref']
+    search_fields = ['report_date', 'model_ref', 'location_name', 'location_key']
     readonly_fields = ['generated_at', 'updated_at']
 
 
@@ -394,6 +395,35 @@ class AIResponseCacheAdmin(admin.ModelAdmin):
         'updated_at',
     ]
     ordering = ['-updated_at']
+
+
+@admin.register(LocationLookupCache)
+class LocationLookupCacheAdmin(admin.ModelAdmin):
+    list_display = [
+        'lookup_type',
+        'cache_day',
+        'provider',
+        'hits',
+        'expires_at',
+        'last_served_at',
+        'updated_at',
+    ]
+    list_filter = ['lookup_type', 'provider', 'cache_day']
+    search_fields = ['lookup_key']
+    readonly_fields = [
+        'lookup_type',
+        'lookup_key',
+        'cache_day',
+        'provider',
+        'payload_json',
+        'hits',
+        'generated_at',
+        'last_served_at',
+        'expires_at',
+        'created_at',
+        'updated_at',
+    ]
+    ordering = ['-cache_day', '-updated_at']
 
 
 @admin.register(AIDayReportCache)
