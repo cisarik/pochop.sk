@@ -145,6 +145,40 @@
         {% endif %}
     </div>
 </section>
+
+{% if compare_ai_models %}
+<section class="natal-compare-section">
+    <div class="natal-aspects-inner">
+        <div class="aspects-header-row">
+            <h2 class="natal-section-title">Porovnanie modelov</h2>
+            <span class="ai-badge">Lazy cache</span>
+        </div>
+        <div class="natal-compare-controls">
+            <div class="ai-compare-head">
+                <span class="ai-compare-label">Viac AI interpretácií</span>
+                <span class="ai-compare-hint" id="natalCompareHint">Vyber max. {{ compare_model_limit }} modely</span>
+            </div>
+            <div class="ai-compare-chips" id="natalCompareChips">
+                {% for model in compare_ai_models %}
+                <button
+                    type="button"
+                    class="ai-compare-chip"
+                    data-model-ref="{{ model.model_ref }}"
+                    title="{{ model.badge }}"
+                >
+                    {{ model.label }}
+                </button>
+                {% endfor %}
+            </div>
+            <button type="button" class="natal-compare-load-btn" id="natalCompareLoadBtn">
+                Načítať porovnanie
+            </button>
+        </div>
+        <div class="ai-error" id="natalCompareError" style="display:none"></div>
+        <div class="natal-compare-grid" id="natalCompareGrid"></div>
+    </div>
+</section>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
@@ -153,6 +187,12 @@ const HAS_ANALYSIS = {{ has_analysis|yesno:"true,false" }};
 const SECTIONS = {{ analysis_sections|safe }};
 const ASPECTS = {{ aspects_data|safe }};
 const STATUS_URL = '{% url "transits:api_natal_analysis_status" %}';
+const PROFILE_ID = {{ profile.pk }};
+const NATAL_COMPARE_MODELS = {{ compare_ai_models_json|safe }};
+const NATAL_DEFAULT_COMPARE_REFS = {{ default_compare_model_refs_json|safe }};
+const NATAL_COMPARE_URL = '{% url "transits:api_natal_analysis_compare" %}';
+const NATAL_COMPARE_MAX_MODELS = Math.max(1, {{ compare_model_limit|default:3 }});
+const NATAL_COMPARE_HINT_DEFAULT = `Vyber max. ${NATAL_COMPARE_MAX_MODELS} modely`;
 
 const SECTION_CLASSES = {
     strengths: 'natal-section-focus',
@@ -375,6 +415,292 @@ function startStatusPolling() {
     pollAnalysisStatus();
     statusInterval = setInterval(pollAnalysisStatus, 3500);
 }
+
+function getCookie(name) {
+    let v = null;
+    document.cookie.split(';').forEach((c) => {
+        const part = c.trim();
+        if (part.startsWith(`${name}=`)) {
+            v = decodeURIComponent(part.substring(name.length + 1));
+        }
+    });
+    return v;
+}
+
+const natalCompare = {
+    selected: new Set(),
+    chips: Array.from(document.querySelectorAll('#natalCompareChips .ai-compare-chip')),
+    hint: document.getElementById('natalCompareHint'),
+    loadBtn: document.getElementById('natalCompareLoadBtn'),
+    error: document.getElementById('natalCompareError'),
+    grid: document.getElementById('natalCompareGrid'),
+};
+
+function setNatalCompareHint(text, isError = false) {
+    if (!natalCompare.hint) {
+        return;
+    }
+    natalCompare.hint.textContent = text || NATAL_COMPARE_HINT_DEFAULT;
+    natalCompare.hint.classList.toggle('ai-compare-hint--error', Boolean(isError));
+}
+
+function getNatalCompareRefs() {
+    return NATAL_COMPARE_MODELS
+        .map((item) => String(item.model_ref || '').trim())
+        .filter((ref) => ref && natalCompare.selected.has(ref))
+        .slice(0, NATAL_COMPARE_MAX_MODELS);
+}
+
+function syncNatalCompareChips() {
+    natalCompare.chips.forEach((chip) => {
+        const ref = String(chip.dataset.modelRef || '').trim();
+        chip.classList.toggle('is-selected', natalCompare.selected.has(ref));
+    });
+}
+
+function setNatalCompareError(message) {
+    if (!natalCompare.error) {
+        return;
+    }
+    if (!message) {
+        natalCompare.error.style.display = 'none';
+        natalCompare.error.textContent = '';
+        return;
+    }
+    natalCompare.error.style.display = '';
+    natalCompare.error.textContent = message;
+}
+
+function truncateText(text, maxLen = 240) {
+    const clean = String(text || '').trim();
+    if (clean.length <= maxLen) {
+        return clean;
+    }
+    return `${clean.slice(0, maxLen - 1)}…`;
+}
+
+function buildNatalCompareSection(section) {
+    const card = document.createElement('section');
+    card.className = 'natal-compare-subcard';
+
+    const title = document.createElement('h4');
+    title.className = 'natal-compare-subtitle';
+    title.textContent = String(section?.title || 'Sekcia');
+    card.appendChild(title);
+
+    if (Array.isArray(section?.items) && section.items.length) {
+        const ul = document.createElement('ul');
+        ul.className = 'natal-compare-sublist';
+        section.items.slice(0, 4).forEach((item) => {
+            const li = document.createElement('li');
+            li.textContent = truncateText(item, 130);
+            ul.appendChild(li);
+        });
+        card.appendChild(ul);
+    } else {
+        const text = document.createElement('p');
+        text.className = 'natal-compare-subtext';
+        text.textContent = truncateText(section?.text || '', 260) || 'Bez textu.';
+        card.appendChild(text);
+    }
+    return card;
+}
+
+function buildNatalCompareAspect(aspect) {
+    const item = document.createElement('div');
+    item.className = 'natal-compare-aspect';
+
+    const head = document.createElement('h5');
+    head.className = 'natal-compare-aspect-title';
+    head.textContent = String(aspect?.header || 'Aspekt');
+    item.appendChild(head);
+
+    const text = document.createElement('p');
+    text.className = 'natal-compare-aspect-text';
+    text.textContent = truncateText(aspect?.text || '', 210) || 'Bez textu.';
+    item.appendChild(text);
+    return item;
+}
+
+function renderNatalCompareResults(results, errors) {
+    if (!natalCompare.grid) {
+        return;
+    }
+    natalCompare.grid.innerHTML = '';
+
+    if (Array.isArray(errors) && errors.length) {
+        const err = document.createElement('div');
+        err.className = 'ai-compare-errors';
+        err.textContent = errors.map((item) => item.error).filter(Boolean).join(' · ');
+        natalCompare.grid.appendChild(err);
+    }
+
+    if (!Array.isArray(results) || !results.length) {
+        setNatalCompareError('Porovnanie modelov nevrátilo žiadne dáta.');
+        return;
+    }
+
+    setNatalCompareError('');
+    results.forEach((item) => {
+        const card = document.createElement('article');
+        card.className = 'natal-compare-card';
+        if (!item?.ok) {
+            card.classList.add('natal-compare-card--error');
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'natal-compare-meta';
+        const badge = document.createElement('span');
+        badge.className = 'ai-badge ai-badge--model';
+        badge.textContent = String(item?.ai_model_badge || 'AI').trim();
+        meta.appendChild(badge);
+
+        const generated = document.createElement('span');
+        generated.className = 'natal-compare-generated';
+        const generatedText = String(item?.generated_at_display || '').trim();
+        generated.textContent = generatedText
+            ? `${generatedText}${item?.cache_hit ? ' • cache' : ''}`
+            : (item?.cache_hit ? 'cache' : 'bez času');
+        meta.appendChild(generated);
+        card.appendChild(meta);
+
+        if (!item?.ok) {
+            const err = document.createElement('p');
+            err.className = 'natal-compare-error';
+            err.textContent = item?.error || 'Model nedostupný.';
+            card.appendChild(err);
+            natalCompare.grid.appendChild(card);
+            return;
+        }
+
+        if (item?.warning) {
+            const warn = document.createElement('p');
+            warn.className = 'ai-compare-warning';
+            warn.textContent = String(item.warning);
+            card.appendChild(warn);
+        }
+
+        const sectionsWrap = document.createElement('div');
+        sectionsWrap.className = 'natal-compare-sections';
+        const sections = Array.isArray(item?.analysis_sections) ? item.analysis_sections.slice(0, 3) : [];
+        sections.forEach((section) => sectionsWrap.appendChild(buildNatalCompareSection(section)));
+        card.appendChild(sectionsWrap);
+
+        const aspectsWrap = document.createElement('div');
+        aspectsWrap.className = 'natal-compare-aspects';
+        const aspectsTitle = document.createElement('h4');
+        aspectsTitle.className = 'natal-compare-subtitle';
+        aspectsTitle.textContent = 'Ukážka aspektov';
+        aspectsWrap.appendChild(aspectsTitle);
+        const aspects = Array.isArray(item?.aspects_data) ? item.aspects_data.slice(0, 2) : [];
+        if (aspects.length) {
+            aspects.forEach((aspect) => aspectsWrap.appendChild(buildNatalCompareAspect(aspect)));
+        } else {
+            const empty = document.createElement('p');
+            empty.className = 'natal-compare-subtext';
+            empty.textContent = 'Bez aspektovej analýzy.';
+            aspectsWrap.appendChild(empty);
+        }
+        card.appendChild(aspectsWrap);
+        natalCompare.grid.appendChild(card);
+    });
+}
+
+async function fetchNatalCompare() {
+    const refs = getNatalCompareRefs();
+    if (!refs.length) {
+        setNatalCompareError('Vyber aspoň jeden model.');
+        return;
+    }
+    if (!natalCompare.loadBtn) {
+        return;
+    }
+
+    natalCompare.loadBtn.disabled = true;
+    natalCompare.loadBtn.textContent = 'Načítavam…';
+    setNatalCompareError('');
+
+    try {
+        const resp = await fetch(NATAL_COMPARE_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken'),
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                profile_id: PROFILE_ID,
+                model_refs: refs,
+            }),
+        });
+        const payload = await resp.json().catch(() => ({}));
+        if (!resp.ok && !Array.isArray(payload?.results)) {
+            setNatalCompareError(payload.error || 'Nepodarilo sa načítať porovnanie modelov.');
+            return;
+        }
+        renderNatalCompareResults(payload.results || [], payload.errors || []);
+    } catch (err) {
+        setNatalCompareError('Nepodarilo sa načítať porovnanie modelov.');
+    } finally {
+        natalCompare.loadBtn.disabled = false;
+        natalCompare.loadBtn.textContent = 'Načítať porovnanie';
+    }
+}
+
+function initNatalCompare() {
+    if (!natalCompare.chips.length) {
+        return;
+    }
+
+    const allowedRefs = natalCompare.chips
+        .map((chip) => String(chip.dataset.modelRef || '').trim())
+        .filter(Boolean);
+    natalCompare.selected.clear();
+    (NATAL_DEFAULT_COMPARE_REFS || []).forEach((ref) => {
+        const cleanRef = String(ref || '').trim();
+        if (!cleanRef || !allowedRefs.includes(cleanRef)) {
+            return;
+        }
+        if (natalCompare.selected.size < NATAL_COMPARE_MAX_MODELS) {
+            natalCompare.selected.add(cleanRef);
+        }
+    });
+    if (!natalCompare.selected.size && allowedRefs.length) {
+        natalCompare.selected.add(allowedRefs[0]);
+    }
+    syncNatalCompareChips();
+
+    natalCompare.chips.forEach((chip) => {
+        chip.addEventListener('click', () => {
+            const ref = String(chip.dataset.modelRef || '').trim();
+            if (!ref) {
+                return;
+            }
+            if (natalCompare.selected.has(ref)) {
+                if (natalCompare.selected.size === 1) {
+                    return;
+                }
+                natalCompare.selected.delete(ref);
+                setNatalCompareHint(NATAL_COMPARE_HINT_DEFAULT, false);
+            } else {
+                if (natalCompare.selected.size >= NATAL_COMPARE_MAX_MODELS) {
+                    setNatalCompareHint(`Maximálne ${NATAL_COMPARE_MAX_MODELS} modely naraz.`, true);
+                    return;
+                }
+                natalCompare.selected.add(ref);
+                setNatalCompareHint(NATAL_COMPARE_HINT_DEFAULT, false);
+            }
+            syncNatalCompareChips();
+        });
+    });
+
+    if (natalCompare.loadBtn) {
+        natalCompare.loadBtn.addEventListener('click', fetchNatalCompare);
+    }
+}
+
+initNatalCompare();
 
 if (HAS_ANALYSIS) {
     renderAnalysis();

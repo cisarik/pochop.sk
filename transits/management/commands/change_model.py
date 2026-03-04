@@ -67,7 +67,7 @@ class Command(BaseCommand):
             display = last_text if last_text else "(prázdna textová odpoveď, ale volanie prebehlo)"
             self.stdout.write(self.style.SUCCESS(f"API test OK: {display}"))
         except Exception as exc:
-            raise CommandError(f"Gemini API test zlyhal: {exc}") from exc
+            raise CommandError(f"AI provider API test zlyhal: {exc}") from exc
 
     def handle(self, *args, **options):
         model_name = options["model"].strip()

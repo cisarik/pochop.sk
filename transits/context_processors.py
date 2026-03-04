@@ -1,6 +1,6 @@
 from django.db.utils import OperationalError, ProgrammingError
 
-from .access import user_can_switch_ai_model
+from .access import user_can_switch_ai_model, user_has_pro_account
 from .gemini_utils import get_active_model_context
 
 
@@ -41,18 +41,35 @@ def _build_dropdown_item(label, model_ref, active_key):
     }
 
 
-def _get_header_models(active_key):
+def _get_header_models(active_key, user=None):
     rows = []
     try:
         from .models import AIModelOption
 
+        allow_pro_only = bool(
+            getattr(user, 'is_staff', False)
+            or getattr(user, 'is_superuser', False)
+            or user_has_pro_account(user)
+        )
+        qs = AIModelOption.objects.filter(is_enabled=True, is_available=True)
+        if not allow_pro_only:
+            qs = qs.filter(is_pro_only=False)
         rows = list(
-            AIModelOption.objects.filter(is_enabled=True)
+            qs
             .order_by('sort_order', 'label')
             .values_list('label', 'model_ref')
         )
     except (OperationalError, ProgrammingError):
-        rows = []
+        try:
+            from .models import AIModelOption
+
+            rows = list(
+                AIModelOption.objects.filter(is_enabled=True)
+                .order_by('sort_order', 'label')
+                .values_list('label', 'model_ref')
+            )
+        except Exception:
+            rows = []
     except Exception:
         rows = []
 
@@ -72,14 +89,16 @@ def ai_runtime_context(request):
             'badge': 'Gemini gemini-3.1-pro-preview',
         }
     active_model_key = _normalize_model_key(active.get('provider'), active.get('model'))
-    ai_dropdown_models = _get_header_models(active_model_key)
+    req_user = getattr(request, 'user', None)
+    ai_dropdown_models = _get_header_models(active_model_key, user=req_user)
     if active_model_key and not any(item.get('is_active') for item in ai_dropdown_models):
         ai_dropdown_models.insert(
             0,
             _build_dropdown_item(active.get('badge'), active_model_key, active_model_key),
         )
     ai_dropdown_options = [item for item in ai_dropdown_models if not item.get('is_active')]
-    can_switch_ai_model = user_can_switch_ai_model(getattr(request, 'user', None))
+    can_switch_ai_model = user_can_switch_ai_model(req_user)
+    has_pro_account = user_has_pro_account(req_user)
     return {
         'active_ai_provider': active['provider'],
         'active_ai_provider_label': active['provider_label'],
@@ -89,4 +108,5 @@ def ai_runtime_context(request):
         'ai_dropdown_models': ai_dropdown_models,
         'ai_dropdown_options': ai_dropdown_options,
         'can_switch_ai_model': can_switch_ai_model,
+        'has_pro_account': has_pro_account,
     }

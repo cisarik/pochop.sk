@@ -61,6 +61,33 @@
                 </div>
             </div>
 
+            {% if compare_ai_models %}
+            <div class="ai-compare-controls" id="aiCompareControls">
+                <div class="ai-compare-head">
+                    <span class="ai-compare-label">Porovnanie modelov</span>
+                    <span class="ai-compare-hint" id="aiCompareHint">
+                        {% if compare_model_limit > 1 %}
+                            Klikni pre prepnutie, vyber 1-{{ compare_model_limit }} pre porovnanie
+                        {% else %}
+                            Klikni pre prepnutie modelu
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="ai-compare-chips" id="aiCompareChips">
+                    {% for model in compare_ai_models %}
+                    <button
+                        type="button"
+                        class="ai-compare-chip"
+                        data-model-ref="{{ model.model_ref }}"
+                        title="{{ model.badge }}"
+                    >
+                        {{ model.label }}
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
             <div class="ai-progress-wrap" id="aiProgressWrap">
                 <div class="ai-progress-track">
                     <div class="ai-progress-fill" id="aiProgressFill"></div>
@@ -72,6 +99,8 @@
                     <span class="ai-progress-step" data-step="cache">Cache-vanie</span>
                 </div>
             </div>
+
+            <div class="ai-compare-grid" id="aiCompareResult" style="display:none"></div>
 
             <!-- Výsledok -->
             <div class="ai-result" id="aiResult" style="display:none">
@@ -202,6 +231,11 @@ function getCookie(name) {
 const CSRF = getCookie('csrftoken');
 const DATA = {{ transits|safe }};
 const AI_DEFAULT_BADGE = '{{ active_ai_model_badge|escapejs }}';
+const AI_ACTIVE_MODEL_KEY = '{{ active_ai_model_key|escapejs }}';
+const AI_COMPARE_MODELS = {{ compare_ai_models_json|safe }};
+const DEFAULT_COMPARE_MODEL_REFS = {{ default_compare_model_refs_json|safe }};
+const AI_DAY_REPORT_URL = '{% url "transits:ai_day_report" %}';
+const AI_DAY_COMPARE_URL = '{% url "transits:ai_day_report_compare" %}';
 const DAYS = 30;
 const START = new Date();
 START.setHours(0,0,0,0);
@@ -443,11 +477,19 @@ function selectDay(dayIdx) {
 
 // ───── AI hodnotenie dňa ─────
 const PROFILE_ID = {{ profile.pk }};
+const AI_COMPARE_MAX_MODELS = Math.max(1, {{ compare_model_limit|default:3 }});
+const AI_COMPARE_HINT_DEFAULT = AI_COMPARE_MAX_MODELS > 1
+    ? `Klikni pre prepnutie, vyber 1-${AI_COMPARE_MAX_MODELS} pre porovnanie`
+    : 'Klikni pre prepnutie modelu';
 let aiAbortCtrl = null;
 let aiProgressTimer = null;
 const aiProgressWrap = document.getElementById('aiProgressWrap');
 const aiProgressFill = document.getElementById('aiProgressFill');
 const aiProgressSteps = Array.from(document.querySelectorAll('.ai-progress-step'));
+const aiCompareResult = document.getElementById('aiCompareResult');
+const aiCompareHint = document.getElementById('aiCompareHint');
+const aiCompareChipButtons = Array.from(document.querySelectorAll('.ai-compare-chip'));
+const aiCompareSelection = new Set();
 const AI_PROGRESS_LABELS = [
     'Pripojenie',
     'AI volanie - zadavanie promptu na mieru',
@@ -510,66 +552,318 @@ function finishAiProgress() {
     });
 }
 
-async function fetchAiReport(dayIdx) {
+function setAiCompareHint(text, isError = false) {
+    if (!aiCompareHint) {
+        return;
+    }
+    aiCompareHint.textContent = text || AI_COMPARE_HINT_DEFAULT;
+    aiCompareHint.classList.toggle('ai-compare-hint--error', Boolean(isError));
+}
+
+function getOrderedSelectedCompareRefs() {
+    const ordered = AI_COMPARE_MODELS
+        .map((item) => String(item.model_ref || '').trim())
+        .filter((ref) => ref && aiCompareSelection.has(ref));
+    return ordered.slice(0, AI_COMPARE_MAX_MODELS);
+}
+
+function syncAiCompareChipState() {
+    aiCompareChipButtons.forEach((btn) => {
+        const ref = String(btn.dataset.modelRef || '').trim();
+        btn.classList.toggle('is-selected', aiCompareSelection.has(ref));
+    });
+}
+
+function initAiCompareChips() {
+    if (!aiCompareChipButtons.length) {
+        return;
+    }
+
+    const allowedRefs = aiCompareChipButtons
+        .map((btn) => String(btn.dataset.modelRef || '').trim())
+        .filter(Boolean);
+    aiCompareSelection.clear();
+    for (const ref of (DEFAULT_COMPARE_MODEL_REFS || [])) {
+        const cleanRef = String(ref || '').trim();
+        if (!cleanRef || !allowedRefs.includes(cleanRef)) {
+            continue;
+        }
+        if (aiCompareSelection.size >= AI_COMPARE_MAX_MODELS) {
+            break;
+        }
+        aiCompareSelection.add(cleanRef);
+    }
+    if (!aiCompareSelection.size && allowedRefs.length) {
+        aiCompareSelection.add(allowedRefs[0]);
+    }
+    syncAiCompareChipState();
+
+    aiCompareChipButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const ref = String(btn.dataset.modelRef || '').trim();
+            if (!ref) {
+                return;
+            }
+            if (aiCompareSelection.has(ref)) {
+                if (aiCompareSelection.size === 1) {
+                    return;
+                }
+                aiCompareSelection.delete(ref);
+                setAiCompareHint(AI_COMPARE_HINT_DEFAULT, false);
+            } else {
+                if (aiCompareSelection.size >= AI_COMPARE_MAX_MODELS) {
+                    setAiCompareHint(`Maximálne ${AI_COMPARE_MAX_MODELS} modely naraz.`, true);
+                    return;
+                }
+                aiCompareSelection.add(ref);
+                setAiCompareHint(AI_COMPARE_HINT_DEFAULT, false);
+            }
+            syncAiCompareChipState();
+            fetchAiReport(selectedDay);
+        });
+    });
+}
+
+function resetAiPanelState() {
     const panel = document.getElementById('aiPanel');
     const result = document.getElementById('aiResult');
     const error = document.getElementById('aiError');
-
-    // Reset
     panel.classList.remove('ai-panel--loaded', 'ai-panel--error');
     document.getElementById('aiEnergy').classList.remove('ai-section--visible');
     document.getElementById('aiFocus').classList.remove('ai-section--visible');
     document.getElementById('aiAvoid').classList.remove('ai-section--visible');
     result.style.display = 'none';
+    if (aiCompareResult) {
+        aiCompareResult.style.display = 'none';
+        aiCompareResult.innerHTML = '';
+    }
     error.style.display = 'none';
     updateAiMeta({ ai_model_badge: AI_DEFAULT_BADGE });
+}
+
+function getSingleAiFallbackRef(modelRefs) {
+    if (!modelRefs.length) {
+        return AI_ACTIVE_MODEL_KEY;
+    }
+    if (modelRefs.length === 1) {
+        return modelRefs[0];
+    }
+    return '';
+}
+
+async function fetchAiReport(dayIdx) {
+    resetAiPanelState();
     startAiProgress();
 
-    // Abort predchadzajuci request
-    if (aiAbortCtrl) aiAbortCtrl.abort();
+    if (aiAbortCtrl) {
+        aiAbortCtrl.abort();
+    }
     aiAbortCtrl = new AbortController();
 
+    const modelRefs = getOrderedSelectedCompareRefs();
+    const singleRef = getSingleAiFallbackRef(modelRefs);
+
     try {
-        const resp = await fetch('{% url "transits:ai_day_report" %}', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
-            body: JSON.stringify({ profile_id: PROFILE_ID, day_offset: dayIdx }),
-            signal: aiAbortCtrl.signal,
-        });
+        if (singleRef) {
+            await fetchAiReportSingle(dayIdx, singleRef, aiAbortCtrl.signal);
+        } else {
+            await fetchAiReportCompare(dayIdx, modelRefs, aiAbortCtrl.signal);
+        }
+    } catch (e) {
+        if (e.name === 'AbortError') {
+            return;
+        }
+        showAiError('Nepodarilo sa získať AI hodnotenie.');
+    }
+}
 
-        const data = await resp.json();
-        updateAiMeta(data);
+async function fetchAiReportSingle(dayIdx, modelRef, signal) {
+    const panel = document.getElementById('aiPanel');
+    const result = document.getElementById('aiResult');
+    const requestBody = { profile_id: PROFILE_ID, day_offset: dayIdx };
+    if (modelRef) {
+        requestBody.model_ref = modelRef;
+    }
+    const resp = await fetch(AI_DAY_REPORT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify(requestBody),
+        signal,
+    });
 
-        if (data.error) {
-            showAiError(data.error);
+    const data = await resp.json().catch(() => ({}));
+    updateAiMeta(data);
+    if (!resp.ok || data.error) {
+        showAiError(data.error || 'Nepodarilo sa získať AI hodnotenie.');
+        return;
+    }
+
+    finishAiProgress();
+    if (aiProgressWrap) {
+        aiProgressWrap.style.display = 'none';
+    }
+    result.style.display = '';
+    panel.classList.add('ai-panel--loaded');
+
+    renderStars(data.rating || 5);
+    await sleep(200);
+    await typeText('aiEnergyText', data.energy || '', 'aiEnergy');
+    await sleep(150);
+    await typeList('aiFocusList', data.focus || [], 'aiFocus');
+    await sleep(150);
+    await typeList('aiAvoidList', data.avoid || [], 'aiAvoid');
+}
+
+function buildCompareListSection(title, icon, items, className) {
+    const section = document.createElement('section');
+    section.className = `ai-compare-part ${className || ''}`.trim();
+    const head = document.createElement('h5');
+    head.className = 'ai-compare-part-title';
+    head.textContent = `${icon} ${title}`;
+    section.appendChild(head);
+
+    if (!Array.isArray(items) || !items.length) {
+        const empty = document.createElement('p');
+        empty.className = 'ai-compare-empty';
+        empty.textContent = 'Bez výstupu.';
+        section.appendChild(empty);
+        return section;
+    }
+
+    const ul = document.createElement('ul');
+    ul.className = 'ai-compare-list';
+    items.forEach((item) => {
+        const li = document.createElement('li');
+        li.textContent = String(item || '').trim();
+        ul.appendChild(li);
+    });
+    section.appendChild(ul);
+    return section;
+}
+
+function renderAiCompareResults(payload) {
+    const panel = document.getElementById('aiPanel');
+    if (!aiCompareResult) {
+        showAiError('Porovnanie modelov nie je dostupné.');
+        return;
+    }
+
+    const results = Array.isArray(payload?.results) ? payload.results : [];
+    if (!results.length) {
+        showAiError(payload?.error || 'Porovnanie modelov nevrátilo dáta.');
+        return;
+    }
+
+    aiCompareResult.innerHTML = '';
+    const errors = Array.isArray(payload?.errors) ? payload.errors : [];
+    if (errors.length) {
+        const errBox = document.createElement('div');
+        errBox.className = 'ai-compare-errors';
+        errBox.textContent = errors.map((item) => item.error).filter(Boolean).join(' · ');
+        aiCompareResult.appendChild(errBox);
+    }
+
+    results.forEach((item) => {
+        const card = document.createElement('article');
+        card.className = 'ai-compare-card';
+        if (!item?.ok) {
+            card.classList.add('ai-compare-card--error');
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'ai-compare-meta';
+        const badge = document.createElement('span');
+        badge.className = 'ai-badge ai-badge--model';
+        badge.textContent = String(item?.ai_model_badge || 'AI').trim();
+        meta.appendChild(badge);
+
+        const generated = document.createElement('span');
+        generated.className = 'ai-compare-generated';
+        const generatedText = String(item?.generated_at_display || '').trim();
+        if (generatedText) {
+            generated.textContent = generatedText + (item?.cache_hit ? ' • cache' : '');
+        } else if (item?.cache_hit) {
+            generated.textContent = 'cache';
+        } else {
+            generated.textContent = 'bez času';
+        }
+        meta.appendChild(generated);
+        card.appendChild(meta);
+
+        if (!item?.ok) {
+            const err = document.createElement('p');
+            err.className = 'ai-compare-error';
+            err.textContent = item?.error || 'Model nie je dostupný.';
+            card.appendChild(err);
+            aiCompareResult.appendChild(card);
             return;
         }
 
-        // Zobraz vysledok s animaciou
-        finishAiProgress();
-        if (aiProgressWrap) {
-            aiProgressWrap.style.display = 'none';
+        if (item?.warning) {
+            const warn = document.createElement('p');
+            warn.className = 'ai-compare-warning';
+            warn.textContent = String(item.warning);
+            card.appendChild(warn);
         }
-        result.style.display = '';
-        panel.classList.add('ai-panel--loaded');
 
-        // Hviezdy - postupne
-        renderStars(data.rating || 5);
+        const ratingRow = document.createElement('div');
+        ratingRow.className = 'ai-compare-rating';
+        const ratingVal = Number(item?.rating || 0);
+        const stars = `${'★'.repeat(Math.max(0, Math.min(10, ratingVal)))}${'☆'.repeat(Math.max(0, 10 - Math.max(0, Math.min(10, ratingVal))))}`;
+        ratingRow.textContent = `Hodnotenie ${ratingVal}/10 · ${stars}`;
+        card.appendChild(ratingRow);
 
-        // Typing efekt pre sekcie
-        await sleep(200);
-        await typeText('aiEnergyText', data.energy || '', 'aiEnergy');
+        const energy = document.createElement('section');
+        energy.className = 'ai-compare-part ai-compare-part--energy';
+        const energyTitle = document.createElement('h5');
+        energyTitle.className = 'ai-compare-part-title';
+        energyTitle.textContent = '⚡ Energia dňa';
+        energy.appendChild(energyTitle);
+        const energyText = document.createElement('p');
+        energyText.className = 'ai-compare-energy';
+        energyText.textContent = String(item?.energy || '').trim() || 'Bez výstupu.';
+        energy.appendChild(energyText);
+        card.appendChild(energy);
 
-        await sleep(150);
-        await typeList('aiFocusList', data.focus || [], 'aiFocus');
+        card.appendChild(buildCompareListSection('Na čo sa sústrediť', '🎯', item?.focus || [], 'ai-compare-part--focus'));
+        card.appendChild(buildCompareListSection('Čomu sa vyhnúť', '⚠', item?.avoid || [], 'ai-compare-part--avoid'));
+        aiCompareResult.appendChild(card);
+    });
 
-        await sleep(150);
-        await typeList('aiAvoidList', data.avoid || [], 'aiAvoid');
+    const okModels = results.filter((item) => item?.ok).length;
+    updateAiMeta({
+        ai_model_badge: `Porovnanie ${okModels}/${results.length}`,
+        generated_at_display: okModels ? 'Modely pripravené' : 'Modely nedostupné',
+    });
 
-    } catch (e) {
-        if (e.name === 'AbortError') return;
-        showAiError('Nepodarilo sa získať AI hodnotenie.');
+    finishAiProgress();
+    if (aiProgressWrap) {
+        aiProgressWrap.style.display = 'none';
     }
+    aiCompareResult.style.display = '';
+    panel.classList.add('ai-panel--loaded');
+}
+
+async function fetchAiReportCompare(dayIdx, modelRefs, signal) {
+    const refs = Array.isArray(modelRefs) && modelRefs.length
+        ? modelRefs
+        : [AI_ACTIVE_MODEL_KEY].filter(Boolean);
+    const resp = await fetch(AI_DAY_COMPARE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify({
+            profile_id: PROFILE_ID,
+            day_offset: dayIdx,
+            model_refs: refs,
+        }),
+        signal,
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok && !Array.isArray(data?.results)) {
+        showAiError(data.error || 'Nepodarilo sa načítať porovnanie modelov.');
+        return;
+    }
+    renderAiCompareResults(data);
 }
 
 function updateAiMeta(data) {
@@ -611,6 +905,9 @@ function showAiError(msg) {
     }
     setAiStatusText('Pripojenie zlyhalo');
     document.getElementById('aiResult').style.display = 'none';
+    if (aiCompareResult) {
+        aiCompareResult.style.display = 'none';
+    }
     const err = document.getElementById('aiError');
     err.style.display = '';
     document.getElementById('aiErrorText').textContent = msg;
@@ -661,6 +958,8 @@ async function typeList(ulId, items, sectionId) {
         await sleep(80);
     }
 }
+
+initAiCompareChips();
 
 function updateDayDetail(dayIdx) {
     const d = getDayDate(dayIdx);

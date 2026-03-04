@@ -10,6 +10,9 @@
         <h1>Astrologický rozbor okamihu</h1>
         <p class="moment-date">{{ report_date|date:"j. n. Y" }}</p>
         <p class="moment-date">Bratislava (48.1486, 17.1077)</p>
+        {% if moment_ai_model_badge %}
+            <p class="moment-date"><span class="ai-badge">{{ moment_ai_model_badge }}</span>{% if moment_cache_hit %} • cache{% endif %}</p>
+        {% endif %}
     </div>
 
     <div class="moment-layout">

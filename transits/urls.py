@@ -38,6 +38,8 @@ urlpatterns = [
     path('api/cities/', views.api_cities, name='api_cities'),
     path('api/transits/<int:profile_id>/', views.api_transits, name='api_transits'),
     path('api/ai-day-report/', views.ai_day_report, name='ai_day_report'),
+    path('api/ai-day-report/compare/', views.ai_day_report_compare, name='ai_day_report_compare'),
     path('api/ai-model/select/', views.api_select_ai_model, name='api_select_ai_model'),
     path('api/natal-analysis-status/', views.api_natal_analysis_status, name='api_natal_analysis_status'),
+    path('api/natal-analysis/compare/', views.api_natal_analysis_compare, name='api_natal_analysis_compare'),
 ]

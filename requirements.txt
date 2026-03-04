@@ -4,7 +4,6 @@ pytz>=2025.1
 geopy>=2.4
 timezonefinder>=8.2
 numpy>=2.4
-google-genai>=1.0
 openai>=1.0
 cryptography>=42.0
 python-dotenv>=1.0

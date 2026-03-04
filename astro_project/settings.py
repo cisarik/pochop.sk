@@ -19,13 +19,15 @@ SECRET_KEY = os.environ.get(
     'django-insecure-2e)kl%n+s&*r1()2j1y1%+d32q8tzlh_jv#s8b@jv*5ys$n1%4'
 )
 
-# AI providers (model-agnostic runtime)
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
-GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.1-pro-preview')
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
-OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-4.1-mini')
-DEFAULT_PROVIDER = os.environ.get('DEFAULT_PROVIDER', 'gemini')
-DEFAULT_MODEL = os.environ.get('DEFAULT_MODEL', GEMINI_MODEL)
+# AI runtime (Vercel AI Gateway transport)
+VERCEL_AI_GATEWAY_API_KEY = os.environ.get(
+    'VERCEL_AI_GATEWAY_API_KEY',
+    os.environ.get('AI_GATEWAY_API_KEY', ''),
+)
+VERCEL_AI_GATEWAY_BASE_URL = os.environ.get('VERCEL_AI_GATEWAY_BASE_URL', 'https://ai-gateway.vercel.sh/v1')
+VERCEL_AI_GATEWAY_DEFAULT_MODEL = os.environ.get('VERCEL_AI_GATEWAY_DEFAULT_MODEL', 'openai/gpt-4o-mini')
+AI_FORCE_VERCEL_GATEWAY = os.environ.get('AI_FORCE_VERCEL_GATEWAY', 'False').lower() in ('true', '1', 'yes')
+DEFAULT_MODEL = os.environ.get('DEFAULT_MODEL', VERCEL_AI_GATEWAY_DEFAULT_MODEL)
 AI_MAX_CALLS_DAILY = int(
     os.environ.get('AI_MAX_CALLS_DAILY', os.environ.get('GEMINI_MAX_CALLS_DAILY', '500'))
 )

@@ -8,8 +8,9 @@ from .engine import ASPECTS, ASPECT_NAMES_SK, PLANETS, check_aspect, datetime_to
 from .gemini_utils import (
     GeminiLimitExceededError,
     generate_gemini_text,
+    get_active_model_context,
     get_gemini_model,
-    has_gemini_key,
+    has_ai_key,
 )
 from .models import ASPECT_SYMBOLS, PLANET_SYMBOLS, MomentReport
 
@@ -41,8 +42,23 @@ VÝSTUP:
 """
 
 
-def _has_gemini_key():
-    return has_gemini_key()
+def _has_gemini_key(model_name=None):
+    return has_ai_key(model_name=model_name)
+
+
+def _normalize_moment_model_ref(active_model_ctx):
+    provider = str(active_model_ctx.get('provider') or '').strip().lower()
+    model = str(active_model_ctx.get('model') or '').strip()
+    if provider and model:
+        return f"{provider}:{model}"
+    return model or provider or 'ai:unknown'
+
+
+def _attach_runtime_meta(report_obj, *, cache_hit, model_ref, model_ctx):
+    report_obj._cache_hit = bool(cache_hit)  # noqa: SLF001 - runtime-only marker for views/templates
+    report_obj._active_model_ref = str(model_ref or '').strip()  # noqa: SLF001
+    report_obj._active_model_ctx = dict(model_ctx or {})  # noqa: SLF001
+    return report_obj
 
 
 def _planet_name_sk(key):
@@ -292,12 +308,13 @@ def _parse_moment_response(payload):
 
 
 def _generate_ai_moment_report(report_date, planets, aspects, angles, model_name=None):
-    if not _has_gemini_key():
+    active_model = get_gemini_model(model_name)
+    if not _has_gemini_key(model_name=active_model):
         return _fallback_report(aspects)
     try:
         prompt = _build_moment_prompt(report_date, planets, aspects, angles)
         text = generate_gemini_text(
-            model_name=get_gemini_model(model_name),
+            model_name=active_model,
             contents=prompt,
             system_instruction=MOMENT_SYSTEM_PROMPT,
             temperature=0.55,
@@ -317,7 +334,7 @@ def _generate_ai_moment_report(report_date, planets, aspects, angles, model_name
         logger.warning("Moment report: denný limit API volaní prekročený.")
         return _fallback_report(aspects)
     except Exception as exc:
-        logger.error("Generovanie moment reportu cez Gemini zlyhalo: %s", exc)
+        logger.error("Generovanie moment reportu cez AI provider zlyhalo: %s", exc)
         return _fallback_report(aspects)
 
 
@@ -330,16 +347,28 @@ def get_or_generate_moment_report(report_date=None, force=False, timezone=MOMENT
     elif not isinstance(report_date, date):
         raise ValueError("report_date musí byť date alebo datetime")
 
+    active_model = get_gemini_model(model_name)
+    active_model_ctx = get_active_model_context(model_name=active_model)
+    normalized_model_ref = _normalize_moment_model_ref(active_model_ctx)
+
     if not force:
-        existing = MomentReport.objects.filter(report_date=report_date).first()
+        existing = MomentReport.objects.filter(
+            report_date=report_date,
+            model_ref=normalized_model_ref,
+        ).first()
         if existing:
-            return existing
+            return _attach_runtime_meta(
+                existing,
+                cache_hit=True,
+                model_ref=normalized_model_ref,
+                model_ctx=active_model_ctx,
+            )
 
     snapshot_dt = tz.localize(datetime.combine(report_date, time(12, 0)))
     planets = calculate_moment_snapshot(snapshot_dt=snapshot_dt, timezone=timezone)
     angles = calculate_moment_angles(snapshot_dt=snapshot_dt, timezone=timezone)
     aspects = calculate_moment_aspects(planets)
-    ai_report = _generate_ai_moment_report(report_date, planets, aspects, angles, model_name=model_name)
+    ai_report = _generate_ai_moment_report(report_date, planets, aspects, angles, model_name=active_model)
     ai_report['location'] = {
         'name': MOMENT_LOCATION_NAME,
         'lat': MOMENT_LAT,
@@ -347,14 +376,23 @@ def get_or_generate_moment_report(report_date=None, force=False, timezone=MOMENT
         'timezone': MOMENT_TZ,
     }
     ai_report['angles'] = angles
+    ai_report['model_ref'] = normalized_model_ref
+    ai_report['ai_model_badge'] = active_model_ctx.get('badge', normalized_model_ref)
 
     obj, _ = MomentReport.objects.update_or_create(
         report_date=report_date,
+        model_ref=normalized_model_ref,
         defaults={
+            'model_ref': normalized_model_ref,
             'timezone': timezone,
             'planets_json': planets,
             'aspects_json': aspects,
             'ai_report_json': ai_report,
         },
     )
-    return obj
+    return _attach_runtime_meta(
+        obj,
+        cache_hit=False,
+        model_ref=normalized_model_ref,
+        model_ctx=active_model_ctx,
+    )

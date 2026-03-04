@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.db.utils import OperationalError, ProgrammingError
 from datetime import datetime
 import json
 import secrets
@@ -142,6 +143,41 @@ class SlovakCity(models.Model):
         return f"{self.name} (okres {self.district})"
 
 
+class UserProStatus(models.Model):
+    """User-level Pro flag pre features viazané na účet (nie profil)."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='pro_status',
+        verbose_name='Používateľ',
+    )
+    is_pro = models.BooleanField(
+        'Pro účet',
+        default=False,
+        help_text='Určuje, či má používateľ Pro oprávnenia (napr. prepínanie AI modelov).',
+    )
+    created_at = models.DateTimeField('Vytvorené', auto_now_add=True)
+    updated_at = models.DateTimeField('Aktualizované', auto_now=True)
+
+    class Meta:
+        verbose_name = 'Pro status používateľa'
+        verbose_name_plural = 'Pro statusy používateľov'
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        tier = 'PRO' if self.is_pro else 'FREE'
+        return f"{self.user} [{tier}]"
+
+    def save(self, *args, **kwargs):
+        saved = super().save(*args, **kwargs)
+        try:
+            NatalProfile.objects.filter(user_id=self.user_id).update(is_pro=bool(self.is_pro))
+        except (OperationalError, ProgrammingError):
+            return saved
+        return saved
+
+
 class NatalProfile(models.Model):
     """Profil s údajmi o narodení pre výpočet tranzitov."""
 
@@ -225,9 +261,49 @@ class NatalProfile(models.Model):
         if not self.public_hash:
             self.public_hash = secrets.token_hex(24)
 
+    def _sync_user_pro_status(self, *, previous_is_pro=None):
+        if not self.user_id:
+            return
+        try:
+            status = UserProStatus.objects.filter(user_id=self.user_id).first()
+            if status is None:
+                UserProStatus.objects.create(
+                    user_id=self.user_id,
+                    is_pro=bool(self.is_pro),
+                )
+                return
+
+            # Explicitná zmena flagu v profile (napr. admin edit) sa prenesie do user-level statusu.
+            if previous_is_pro is not None and bool(previous_is_pro) != bool(self.is_pro):
+                if bool(status.is_pro) != bool(self.is_pro):
+                    status.is_pro = bool(self.is_pro)
+                    status.save(update_fields=['is_pro', 'updated_at'])
+                return
+
+            # Ak profil ešte nebol explicitne menený, user-level status je nadradený.
+            if bool(status.is_pro) != bool(self.is_pro):
+                NatalProfile.objects.filter(pk=self.pk).update(is_pro=bool(status.is_pro))
+                self.is_pro = bool(status.is_pro)
+        except (OperationalError, ProgrammingError):
+            # Tolerujeme stav počas migrácie, aby page flow nespadol.
+            return
+
     def save(self, *args, **kwargs):
+        previous_is_pro = None
+        if self.pk:
+            try:
+                previous_is_pro = (
+                    NatalProfile.objects
+                    .filter(pk=self.pk)
+                    .values_list('is_pro', flat=True)
+                    .first()
+                )
+            except Exception:
+                previous_is_pro = None
         self.ensure_public_hash()
-        return super().save(*args, **kwargs)
+        saved = super().save(*args, **kwargs)
+        self._sync_user_pro_status(previous_is_pro=previous_is_pro)
+        return saved
 
     def set_encrypted_birth_data(
         self,
@@ -396,7 +472,14 @@ class NatalProfile(models.Model):
 class MomentReport(models.Model):
     """Denný verejný astrologický rozbor okamihu."""
 
-    report_date = models.DateField('Dátum reportu', unique=True, db_index=True)
+    report_date = models.DateField('Dátum reportu', db_index=True)
+    model_ref = models.CharField(
+        'Model',
+        max_length=120,
+        default='',
+        db_index=True,
+        help_text='Normalizovaný model_ref (napr. openai:gpt-5.2).',
+    )
     timezone = models.CharField('Časové pásmo', max_length=50, default='Europe/Bratislava')
     generated_at = models.DateTimeField('Generované', auto_now_add=True)
     updated_at = models.DateTimeField('Aktualizované', auto_now=True)
@@ -409,9 +492,19 @@ class MomentReport(models.Model):
         verbose_name = 'Rozbor okamihu'
         verbose_name_plural = 'Rozbory okamihu'
         ordering = ['-report_date']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['report_date', 'model_ref'],
+                name='uniq_moment_report_date_model',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['report_date', 'model_ref']),
+        ]
 
     def __str__(self):
-        return f"Okamih {self.report_date.strftime('%d.%m.%Y')}"
+        model = self.model_ref or 'default'
+        return f"Okamih {self.report_date.strftime('%d.%m.%Y')} [{model}]"
 
 
 class GeminiConfig(models.Model):
@@ -427,6 +520,11 @@ class GeminiConfig(models.Model):
         'Max API calls denne',
         default=500,
         help_text='Tvrdý denný limit volaní na AI API.',
+    )
+    max_compare_models = models.PositiveSmallIntegerField(
+        'Max modelov v porovnaní',
+        default=3,
+        help_text='Limit modelov v compare režime (timeline + natálna analýza).',
     )
     created_at = models.DateTimeField('Vytvorené', auto_now_add=True)
     updated_at = models.DateTimeField('Aktualizované', auto_now=True)
@@ -451,6 +549,11 @@ class GeminiConfig(models.Model):
 class AIModelOption(models.Model):
     """Modely zobrazované v header dropdown-e."""
 
+    MODEL_SOURCE_CHOICES = [
+        ('manual', 'Manuálne'),
+        ('vercel', 'Vercel AI Gateway'),
+    ]
+
     label = models.CharField(
         'Názov modelu',
         max_length=80,
@@ -462,14 +565,48 @@ class AIModelOption(models.Model):
         unique=True,
         help_text='Runtime hodnota, napr. openai:gpt-5.2 alebo gemini:gemini-2.5-pro.',
     )
+    source = models.CharField(
+        'Zdroj',
+        max_length=20,
+        choices=MODEL_SOURCE_CHOICES,
+        default='manual',
+        db_index=True,
+        help_text='manual = ručne spravovaný model, vercel = synchronizovaný z Vercel AI Gateway.',
+    )
+    owner = models.CharField('Provider/owner', max_length=80, blank=True, default='')
+    model_type = models.CharField('Typ', max_length=40, blank=True, default='')
+    context_window = models.PositiveIntegerField('Context window', null=True, blank=True)
+    max_tokens = models.PositiveIntegerField('Max output tokens', null=True, blank=True)
+    description = models.TextField('Popis modelu', blank=True, default='')
+    tags_json = models.JSONField('Tagy', default=list, blank=True)
+    pricing_json = models.JSONField('Pricing', default=dict, blank=True)
+    raw_meta_json = models.JSONField('Raw metadata', default=dict, blank=True)
+    is_available = models.BooleanField(
+        'Dostupný v katalógu',
+        default=True,
+        help_text='Pri sync z Vercel sa vypne, ak model zmizne z katalógu.',
+    )
+    is_pro_only = models.BooleanField(
+        'Len pre Pro účty',
+        default=False,
+        help_text='Ak je zapnuté, model je viditeľný a použiteľný iba pre Pro účty (alebo staff).',
+    )
     sort_order = models.PositiveIntegerField('Poradie', default=10)
-    is_enabled = models.BooleanField('Zobraziť v headri', default=True)
+    is_enabled = models.BooleanField(
+        'Aktívny',
+        default=True,
+        help_text=(
+            'Ak je zapnuté, model je aktívny v aplikácii: '
+            'zobrazí sa v header dropdown-e/compare režime a použije sa pri refresh_to_cache.'
+        ),
+    )
+    last_synced_at = models.DateTimeField('Naposledy synchronizované', null=True, blank=True)
     created_at = models.DateTimeField('Vytvorené', auto_now_add=True)
     updated_at = models.DateTimeField('Aktualizované', auto_now=True)
 
     class Meta:
-        verbose_name = 'AI model do headeru'
-        verbose_name_plural = 'AI modely do headeru'
+        verbose_name = 'AI model'
+        verbose_name_plural = 'AI modely'
         ordering = ['sort_order', 'label']
 
     def __str__(self):
@@ -533,6 +670,44 @@ class AIDayReportCache(models.Model):
 
     def __str__(self):
         return f"{self.target_date} | {self.model_ref} | profile={self.profile_id}"
+
+
+class AINatalAnalysisCache(models.Model):
+    """Per-profil/per-model cache pre AI natálnu analýzu."""
+
+    profile = models.ForeignKey(
+        NatalProfile,
+        on_delete=models.CASCADE,
+        related_name='ai_natal_analysis_cache_rows',
+        verbose_name='Profil',
+    )
+    model_ref = models.CharField('Model', max_length=120, db_index=True)
+    analysis_json = models.JSONField('Natálna analýza', default=list)
+    aspects_json = models.JSONField('Analýza aspektov', default=list)
+    profile_updated_at = models.DateTimeField('Profil updated_at snapshot', null=True, blank=True)
+    hits = models.PositiveIntegerField('Počet cache hitov', default=0)
+    generated_at = models.DateTimeField('Generované', auto_now_add=True)
+    last_served_at = models.DateTimeField('Naposledy servované', null=True, blank=True)
+    expires_at = models.DateTimeField('Expirácia', db_index=True)
+    created_at = models.DateTimeField('Vytvorené', auto_now_add=True)
+    updated_at = models.DateTimeField('Aktualizované', auto_now=True)
+
+    class Meta:
+        verbose_name = 'AI natálna analýza cache'
+        verbose_name_plural = 'AI natálne analýzy cache'
+        ordering = ['-updated_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['profile', 'model_ref'],
+                name='uniq_ai_natal_cache_profile_model',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['model_ref', 'expires_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.model_ref} | profile={self.profile_id}"
 
 
 class AIDayReportDailyStat(models.Model):

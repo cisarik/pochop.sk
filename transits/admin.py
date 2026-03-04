@@ -1,10 +1,18 @@
 from datetime import date
 
 from django.contrib import admin, messages
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.contrib.auth.models import User
 from django.conf import settings
+from django.http import HttpResponseRedirect
+from django.urls import path, reverse
+
+from .access import user_has_pro_account
+from .vercel_gateway import sync_vercel_models, VercelGatewaySyncError
 from .models import (
     TransitAspect,
     NatalProfile,
+    UserProStatus,
     SlovakCity,
     MomentReport,
     GeminiConfig,
@@ -13,7 +21,61 @@ from .models import (
     AIResponseCache,
     AIDayReportCache,
     AIDayReportDailyStat,
+    AINatalAnalysisCache,
 )
+
+admin.site.unregister(User)
+
+
+class UserProStatusInline(admin.StackedInline):
+    model = UserProStatus
+    fk_name = 'user'
+    extra = 0
+    max_num = 1
+    can_delete = False
+    verbose_name = 'Pro účet'
+    verbose_name_plural = 'Pro účet'
+    fields = ['is_pro']
+
+    def get_extra(self, request, obj=None, **kwargs):
+        if obj is None:
+            return 0
+        has_row = UserProStatus.objects.filter(user=obj).exists()
+        return 0 if has_row else 1
+
+
+@admin.register(User)
+class PochopUserAdmin(BaseUserAdmin):
+    inlines = [UserProStatusInline]
+    list_display = list(BaseUserAdmin.list_display) + ['pro_account']
+    list_filter = list(BaseUserAdmin.list_filter) + ['pro_status__is_pro']
+    actions = ['mark_users_as_pro', 'mark_users_as_free']
+
+    @admin.display(boolean=True, description='Pro účet')
+    def pro_account(self, obj):
+        return user_has_pro_account(obj)
+
+    @admin.action(description='Nastaviť Pro účet (vybraní používatelia)')
+    def mark_users_as_pro(self, request, queryset):
+        updated = 0
+        for user in queryset.iterator():
+            UserProStatus.objects.update_or_create(
+                user=user,
+                defaults={'is_pro': True},
+            )
+            updated += 1
+        self.message_user(request, f'Pro účet zapnutý pre {updated} používateľov.', level=messages.SUCCESS)
+
+    @admin.action(description='Vypnúť Pro účet (vybraní používatelia)')
+    def mark_users_as_free(self, request, queryset):
+        updated = 0
+        for user in queryset.iterator():
+            UserProStatus.objects.update_or_create(
+                user=user,
+                defaults={'is_pro': False},
+            )
+            updated += 1
+        self.message_user(request, f'Pro účet vypnutý pre {updated} používateľov.', level=messages.SUCCESS)
 
 
 @admin.register(TransitAspect)
@@ -52,6 +114,13 @@ class NatalProfileAdmin(admin.ModelAdmin):
     readonly_fields = ['created_at', 'updated_at']
     actions = ['mark_as_pro', 'remove_pro']
 
+    def _sync_pro_status_from_profiles(self, queryset):
+        for profile in queryset.exclude(user__isnull=True).only('user_id', 'is_pro').iterator():
+            UserProStatus.objects.update_or_create(
+                user_id=profile.user_id,
+                defaults={'is_pro': bool(profile.is_pro)},
+            )
+
     @admin.display(boolean=True, description='PII encrypted')
     def has_encrypted_birth(self, obj):
         return bool(obj.birth_date_encrypted and obj.birth_place_encrypted)
@@ -59,12 +128,27 @@ class NatalProfileAdmin(admin.ModelAdmin):
     @admin.action(description='Nastaviť Pro účet (vybrané profily)')
     def mark_as_pro(self, request, queryset):
         updated = queryset.update(is_pro=True)
+        self._sync_pro_status_from_profiles(queryset)
         self.message_user(request, f'Pro účet zapnutý pre {updated} profil(ov).', level=messages.SUCCESS)
 
     @admin.action(description='Vypnúť Pro účet (vybrané profily)')
     def remove_pro(self, request, queryset):
         updated = queryset.update(is_pro=False)
+        self._sync_pro_status_from_profiles(queryset)
         self.message_user(request, f'Pro účet vypnutý pre {updated} profil(ov).', level=messages.SUCCESS)
+
+
+@admin.register(UserProStatus)
+class UserProStatusAdmin(admin.ModelAdmin):
+    list_display = ['user', 'is_pro', 'updated_at']
+    list_filter = ['is_pro', 'updated_at']
+    search_fields = ['user__username', 'user__email']
+    list_editable = ['is_pro']
+    readonly_fields = ['created_at', 'updated_at']
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        NatalProfile.objects.filter(user=obj.user).update(is_pro=bool(obj.is_pro))
 
 
 @admin.register(SlovakCity)
@@ -76,8 +160,9 @@ class SlovakCityAdmin(admin.ModelAdmin):
 
 @admin.register(MomentReport)
 class MomentReportAdmin(admin.ModelAdmin):
-    list_display = ['report_date', 'timezone', 'updated_at']
-    search_fields = ['report_date']
+    list_display = ['report_date', 'model_ref', 'timezone', 'updated_at']
+    list_filter = ['model_ref', 'timezone']
+    search_fields = ['report_date', 'model_ref']
     readonly_fields = ['generated_at', 'updated_at']
 
 
@@ -86,27 +171,35 @@ class GeminiConfigAdmin(admin.ModelAdmin):
     list_display = [
         'default_model',
         'max_calls_daily',
+        'max_compare_models',
         'today_calls',
-        'has_gemini_env_key',
-        'has_openai_env_key',
+        'has_vercel_env_key',
         'updated_at',
     ]
     readonly_fields = ['created_at', 'updated_at', 'env_keys_status']
-    fields = ['default_model', 'max_calls_daily', 'env_keys_status', 'created_at', 'updated_at']
+    fields = [
+        'default_model',
+        'max_calls_daily',
+        'max_compare_models',
+        'env_keys_status',
+        'created_at',
+        'updated_at',
+    ]
 
-    @admin.display(boolean=True, description='Gemini key (.env)')
-    def has_gemini_env_key(self, obj):
-        return bool((getattr(settings, 'GEMINI_API_KEY', '') or '').strip())
-
-    @admin.display(boolean=True, description='OpenAI key (.env)')
-    def has_openai_env_key(self, obj):
-        return bool((getattr(settings, 'OPENAI_API_KEY', '') or '').strip())
+    @admin.display(boolean=True, description='Vercel key (.env)')
+    def has_vercel_env_key(self, obj):
+        return bool(
+            (getattr(settings, 'VERCEL_AI_GATEWAY_API_KEY', '') or '').strip()
+            or (getattr(settings, 'AI_GATEWAY_API_KEY', '') or '').strip()
+        )
 
     @admin.display(description='API key stav')
     def env_keys_status(self, obj):
-        gem = 'OK' if self.has_gemini_env_key(obj) else 'chýba'
-        oai = 'OK' if self.has_openai_env_key(obj) else 'chýba'
-        return f"GEMINI_API_KEY: {gem} | OPENAI_API_KEY: {oai} (kľúče sa čítajú iba z .env)"
+        vercel = 'OK' if self.has_vercel_env_key(obj) else 'chýba'
+        return (
+            f"VERCEL_AI_GATEWAY_API_KEY: {vercel} "
+            "(kľúč sa číta iba z .env, runtime ide cez Vercel AI Gateway)"
+        )
 
     def has_add_permission(self, request):
         # Singleton konfigurácia
@@ -125,8 +218,6 @@ class GeminiConfigAdmin(admin.ModelAdmin):
             return
 
         from .views import _invalidate_all_natal_analyses, _generate_and_save_analyses
-        from .moment_service import get_or_generate_moment_report
-
         total = NatalProfile.objects.count()
         ok = 0
         fail = 0
@@ -142,7 +233,6 @@ class GeminiConfigAdmin(admin.ModelAdmin):
             else:
                 users_marked = _invalidate_all_natal_analyses()
 
-            get_or_generate_moment_report(force=True, model_name=obj.default_model)
             if eager_users_refresh:
                 messages.info(
                     request,
@@ -175,10 +265,117 @@ class GeminiDailyUsageAdmin(admin.ModelAdmin):
 
 @admin.register(AIModelOption)
 class AIModelOptionAdmin(admin.ModelAdmin):
-    list_display = ['label', 'model_ref', 'sort_order', 'is_enabled', 'updated_at']
-    list_filter = ['is_enabled']
-    search_fields = ['label', 'model_ref']
-    list_editable = ['sort_order', 'is_enabled']
+    list_display = [
+        'label',
+        'model_ref',
+        'source',
+        'owner',
+        'model_type',
+        'is_available',
+        'is_pro_only',
+        'is_enabled',
+        'sort_order',
+        'last_synced_at',
+    ]
+    list_filter = ['source', 'is_enabled', 'is_available', 'is_pro_only', 'model_type', 'owner']
+    search_fields = ['label', 'model_ref', 'owner', 'description']
+    list_editable = ['is_enabled', 'is_pro_only', 'sort_order']
+    readonly_fields = ['last_synced_at']
+    change_list_template = 'admin/transits/aimodeloption/change_list.html'
+    actions = ['mark_models_active', 'mark_models_inactive', 'sync_selected_labels_from_vercel']
+
+    @admin.action(description='Nastaviť ako aktívne')
+    def mark_models_active(self, request, queryset):
+        updated = queryset.update(is_enabled=True)
+        self.message_user(request, f'Aktivované modely: {updated}', level=messages.SUCCESS)
+
+    @admin.action(description='Nastaviť ako neaktívne')
+    def mark_models_inactive(self, request, queryset):
+        updated = queryset.update(is_enabled=False)
+        self.message_user(request, f'Deaktivované modely: {updated}', level=messages.SUCCESS)
+
+    fieldsets = (
+        ('Základ', {
+            'fields': (
+                'label',
+                'model_ref',
+                'source',
+                'owner',
+                'model_type',
+                'description',
+            )
+        }),
+        ('Použitie v appke', {
+            'fields': (
+                'is_available',
+                'is_enabled',
+                'is_pro_only',
+                'sort_order',
+                'last_synced_at',
+            )
+        }),
+        ('Metadata z Vercel', {
+            'fields': (
+                'context_window',
+                'max_tokens',
+                'tags_json',
+                'pricing_json',
+                'raw_meta_json',
+            )
+        }),
+    )
+
+    @admin.action(description='Aktualizovať labely vybraných Vercel modelov podľa posledného raw meta')
+    def sync_selected_labels_from_vercel(self, request, queryset):
+        updated = 0
+        for row in queryset.filter(source='vercel').iterator():
+            raw = row.raw_meta_json if isinstance(row.raw_meta_json, dict) else {}
+            label = str(raw.get('name') or raw.get('display_name') or row.label or '').strip()
+            if label and label != row.label:
+                row.label = label
+                row.save(update_fields=['label', 'updated_at'])
+                updated += 1
+        self.message_user(request, f'Aktualizované labely: {updated}', level=messages.SUCCESS)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                'sync-vercel/',
+                self.admin_site.admin_view(self.sync_vercel_view),
+                name='transits_aimodeloption_sync_vercel',
+            ),
+        ]
+        return custom_urls + urls
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context['vercel_sync_url'] = reverse('admin:transits_aimodeloption_sync_vercel')
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def sync_vercel_view(self, request):
+        try:
+            stats = sync_vercel_models(
+                disable_missing=True,
+                enable_new=False,
+                pro_only_for_new=True,
+                timeout_seconds=25,
+            )
+            self.message_user(
+                request,
+                (
+                    'Vercel sync hotový: '
+                    f"remote={stats.get('total_remote')} "
+                    f"created={stats.get('created')} updated={stats.get('updated')} "
+                    f"unchanged={stats.get('unchanged')} missing={stats.get('missing')}"
+                ),
+                level=messages.SUCCESS,
+            )
+        except VercelGatewaySyncError as exc:
+            self.message_user(request, f'Vercel sync zlyhal: {exc}', level=messages.ERROR)
+        except Exception as exc:
+            self.message_user(request, f'Neočakávaná chyba syncu: {exc}', level=messages.ERROR)
+        return HttpResponseRedirect(reverse('admin:transits_aimodeloption_changelist'))
 
 
 @admin.register(AIResponseCache)
@@ -261,3 +458,31 @@ class AIDayReportDailyStatAdmin(admin.ModelAdmin):
             return '0%'
         pct = (obj.cache_hits / obj.total_requests) * 100
         return f"{pct:.1f}%"
+
+
+@admin.register(AINatalAnalysisCache)
+class AINatalAnalysisCacheAdmin(admin.ModelAdmin):
+    list_display = [
+        'profile',
+        'model_ref',
+        'hits',
+        'generated_at',
+        'expires_at',
+        'last_served_at',
+    ]
+    list_filter = ['model_ref']
+    search_fields = ['profile__name', 'profile__user__username', 'model_ref']
+    readonly_fields = [
+        'profile',
+        'model_ref',
+        'analysis_json',
+        'aspects_json',
+        'profile_updated_at',
+        'hits',
+        'generated_at',
+        'last_served_at',
+        'expires_at',
+        'created_at',
+        'updated_at',
+    ]
+    ordering = ['-updated_at']

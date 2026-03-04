@@ -1,10 +1,29 @@
 from django.core.exceptions import ObjectDoesNotExist
+from django.db.utils import OperationalError, ProgrammingError
+
+
+def _user_pro_status_flag(user):
+    """Vráti Pro flag z user-level tabuľky; None ak nie je dostupný."""
+    if not getattr(user, 'is_authenticated', False):
+        return None
+    try:
+        pro_status = user.pro_status
+    except (AttributeError, ObjectDoesNotExist):
+        return None
+    except (OperationalError, ProgrammingError):
+        return None
+    return bool(getattr(pro_status, 'is_pro', False))
 
 
 def user_has_pro_account(user):
-    """True ak prihlásený používateľ má profil s aktívnym Pro flagom."""
+    """True ak prihlásený používateľ má aktívny Pro účet."""
     if not getattr(user, 'is_authenticated', False):
         return False
+
+    user_level_flag = _user_pro_status_flag(user)
+    if user_level_flag is not None:
+        return user_level_flag
+
     try:
         profile = user.natal_profile
     except (AttributeError, ObjectDoesNotExist):

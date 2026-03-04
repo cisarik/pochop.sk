@@ -26,8 +26,13 @@
             <div class="nav-tagline-wrap">
                 <p class="nav-tagline">Pochop sám seba pomocou astrológie a <span class="nav-tagline-ai"><b>AI</b></span></p>
                 <div class="nav-ai nav-ai--tagline" data-ai-dropdown data-ai-switch-url="{% url 'transits:api_select_ai_model' %}">
-                    <button type="button" class="nav-ai-trigger" aria-label="Aktívny AI model" aria-expanded="false" aria-controls="nav-ai-dropdown-panel">
-                        <span class="nav-ai-trigger-model">{{ active_ai_model_badge }}</span>
+                    <button type="button" class="nav-ai-trigger {% if not can_switch_ai_model %}nav-ai-trigger--locked{% endif %}" aria-label="Aktívny AI model" aria-expanded="false" aria-controls="nav-ai-dropdown-panel">
+                        <span class="nav-ai-trigger-copy">
+                            <span class="nav-ai-trigger-model">{{ active_ai_model_badge }}</span>
+                            {% if not can_switch_ai_model %}
+                                <span class="nav-ai-dropdown-hint">Model compare dostupný len pre Pro</span>
+                            {% endif %}
+                        </span>
                         <span class="nav-ai-trigger-arrow" aria-hidden="true">▾</span>
                     </button>
                     <div class="nav-ai-dropdown" id="nav-ai-dropdown-panel">
@@ -38,7 +43,7 @@
                                     {% if can_switch_ai_model %}
                                         <button type="button" class="nav-ai-item" style="--stagger: {{ forloop.counter0 }};" data-ai-model-option data-model-ref="{{ ai_item.model_ref }}">
                                             <span class="nav-ai-item-label">{{ ai_item.label }}</span>
-                                            <span class="nav-ai-item-runtime">{{ ai_item.provider_label }} · {{ ai_item.model }}</span>
+                                            <span class="nav-ai-item-runtime">{{ ai_item.provider_label }}</span>
                                         </button>
                                     {% else %}
                                         <span class="nav-ai-item-runtime"><i>Pro</i> účet je potrebný pre zmenu modelu</span>
@@ -61,6 +66,7 @@
                     <a href="{% url 'transits:lexikon' %}" class="nav-moment-link nav-moment-link--lexikon">Lexikón</a>
                     <a href="{% url 'transits:moment_overview' %}" class="nav-moment-link">Astrologický rozbor okamihu</a>
                 </div>
+                
                 <div class="nav-links">
                     {% if user.is_authenticated %}
                         <a href="{% url 'transits:natal_analysis' %}" class="nav-moment-link">Analýza</a>

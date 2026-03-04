@@ -10,7 +10,7 @@ from django.db.utils import OperationalError, ProgrammingError
 from django.utils import timezone
 
 
-SUPPORTED_AI_PROVIDERS = ('gemini', 'openai')
+SUPPORTED_AI_PROVIDERS = ('gemini', 'openai', 'vercel')
 
 
 class AILimitExceededError(Exception):
@@ -19,6 +19,33 @@ class AILimitExceededError(Exception):
 
 # Backward compatibility for existing imports.
 GeminiLimitExceededError = AILimitExceededError
+
+
+def _is_provider_quota_error(exc):
+    """Detekcia provider-level quota/rate-limit chýb (429/RESOURCE_EXHAUSTED)."""
+    msg = str(exc or '').strip().lower()
+    if not msg:
+        return False
+
+    strong_markers = (
+        'resource_exhausted',
+        'insufficient_quota',
+    )
+    if any(marker in msg for marker in strong_markers):
+        return True
+
+    quota_markers = (
+        'quota',
+        'rate limit',
+        'too many requests',
+        'billing hard limit',
+    )
+    if any(marker in msg for marker in quota_markers):
+        return True
+
+    if '429' in msg and ('exceeded' in msg or 'limit' in msg):
+        return True
+    return False
 
 
 def _normalize_cache_value(value):
@@ -141,45 +168,94 @@ def get_default_model(model_name=None):
     cfg = _get_admin_config()
     if cfg and cfg.default_model:
         return cfg.default_model.strip()
-    return getattr(settings, 'DEFAULT_MODEL', getattr(settings, 'GEMINI_MODEL', 'gemini-3.1-pro-preview')).strip()
+    return getattr(
+        settings,
+        'DEFAULT_MODEL',
+        getattr(settings, 'VERCEL_AI_GATEWAY_DEFAULT_MODEL', 'openai/gpt-4o-mini'),
+    ).strip()
+
+
+def _as_vercel_model_ref(provider, model_name):
+    provider_clean = (provider or '').strip().lower()
+    model_clean = (model_name or '').strip()
+    if not model_clean:
+        return ''
+    if provider_clean == 'vercel':
+        return model_clean
+    if '/' in model_clean and provider_clean in ('openai', 'gemini', 'google', 'anthropic', 'xai', 'mistral', 'meta'):
+        return model_clean
+    if provider_clean in ('gemini', 'google'):
+        return f"google/{model_clean}"
+    if provider_clean in ('openai', 'chatgpt'):
+        return f"openai/{model_clean}"
+    if provider_clean:
+        return f"{provider_clean}/{model_clean}"
+    return model_clean
 
 
 def _resolve_provider_and_model(model_name=None):
     raw = get_default_model(model_name)
     cleaned = (raw or '').strip()
     if not cleaned:
-        cleaned = getattr(settings, 'GEMINI_MODEL', 'gemini-3.1-pro-preview').strip()
+        cleaned = getattr(settings, 'VERCEL_AI_GATEWAY_DEFAULT_MODEL', 'openai/gpt-4o-mini').strip()
     lower = cleaned.lower()
+    force_vercel = bool(getattr(settings, 'AI_FORCE_VERCEL_GATEWAY', False))
 
-    # Explicit provider prefix: openai:gpt-4.1-mini, gemini:gemini-3.1-pro-preview
+    # Explicit provider prefix: openai:gpt-5.2, gemini:gemini-2.5-pro, vercel:openai/gpt-5.2
     if ':' in cleaned:
         provider_hint, explicit_model = cleaned.split(':', 1)
         provider = provider_hint.strip().lower()
         explicit_model = explicit_model.strip()
         if provider in SUPPORTED_AI_PROVIDERS and explicit_model:
+            if force_vercel and provider != 'vercel':
+                forced_model = _as_vercel_model_ref(provider, explicit_model)
+                if forced_model:
+                    return 'vercel', forced_model
             return provider, explicit_model
 
-    # Provider aliases.
+    # Provider aliases always resolve to gateway default model.
     if lower in ('gemini', 'google'):
-        return 'gemini', getattr(settings, 'GEMINI_MODEL', 'gemini-3.1-pro-preview').strip()
+        model_val = getattr(settings, 'VERCEL_AI_GATEWAY_DEFAULT_MODEL', 'openai/gpt-4o-mini').strip()
+        return 'vercel', _as_vercel_model_ref('gemini', model_val)
     if lower in ('openai', 'chatgpt'):
-        return 'openai', getattr(settings, 'OPENAI_MODEL', 'gpt-4.1-mini').strip()
+        model_val = getattr(settings, 'VERCEL_AI_GATEWAY_DEFAULT_MODEL', 'openai/gpt-4o-mini').strip()
+        return 'vercel', _as_vercel_model_ref('openai', model_val)
+    if lower in ('vercel', 'gateway', 'ai-gateway'):
+        return 'vercel', getattr(settings, 'VERCEL_AI_GATEWAY_DEFAULT_MODEL', 'openai/gpt-4o-mini').strip()
 
-    # Heuristics by model naming.
+    # Gateway route style (owner/model).
+    if '/' in cleaned:
+        owner_hint, model_hint = cleaned.split('/', 1)
+        owner_hint = owner_hint.strip().lower()
+        model_hint = model_hint.strip()
+        if owner_hint in ('openai', 'google', 'gemini', 'anthropic', 'xai', 'mistral', 'meta'):
+            if owner_hint in ('openai',):
+                return 'openai', model_hint
+            if owner_hint in ('google', 'gemini'):
+                return 'gemini', model_hint
+            return 'vercel', cleaned
+
+    # Heuristics by model naming for legacy refs.
     if lower.startswith('gemini'):
+        if force_vercel:
+            return 'vercel', _as_vercel_model_ref('gemini', cleaned)
         return 'gemini', cleaned
     if lower.startswith(('gpt-', 'o1', 'o3', 'o4', 'gpt4', 'gpt-4', 'gpt-5')):
+        if force_vercel:
+            return 'vercel', _as_vercel_model_ref('openai', cleaned)
         return 'openai', cleaned
 
-    default_provider = (getattr(settings, 'DEFAULT_PROVIDER', 'gemini') or 'gemini').strip().lower()
-    if default_provider not in SUPPORTED_AI_PROVIDERS:
-        default_provider = 'gemini'
-    return default_provider, cleaned
+    # Default to Vercel route.
+    if force_vercel:
+        forced_model = _as_vercel_model_ref('vercel', cleaned)
+        if forced_model:
+            return 'vercel', forced_model
+    return 'vercel', cleaned
 
 
 def get_active_model_context(model_name=None):
     provider, resolved_model = _resolve_provider_and_model(model_name=model_name)
-    provider_label = 'OpenAI' if provider == 'openai' else 'Gemini'
+    provider_label = 'Vercel AI Gateway'
     model_display = (resolved_model or '').strip()
 
     # Avoid duplicate provider text in badge.
@@ -197,20 +273,20 @@ def get_active_model_context(model_name=None):
 
 
 def get_provider_api_key(provider):
-    provider = (provider or '').strip().lower()
-    if provider == 'openai':
-        return (getattr(settings, 'OPENAI_API_KEY', '') or '').strip()
-    return (getattr(settings, 'GEMINI_API_KEY', '') or '').strip()
+    del provider
+    return (
+        (getattr(settings, 'VERCEL_AI_GATEWAY_API_KEY', '') or '')
+        or (getattr(settings, 'AI_GATEWAY_API_KEY', '') or '')
+    ).strip()
 
 
 def has_ai_key(model_name=None):
-    provider, _ = _resolve_provider_and_model(model_name=model_name)
-    key = get_provider_api_key(provider)
+    del model_name
+    key = get_provider_api_key('vercel')
     if not key:
         return False
     placeholder_values = {
-        'your-gemini-api-key-here',
-        'your-openai-api-key-here',
+        'your-vercel-ai-gateway-api-key-here',
         'change-me',
     }
     return key not in placeholder_values
@@ -257,62 +333,11 @@ def reserve_ai_call():
     return usage.calls_made, limit
 
 
-def _generate_with_gemini(
-    *,
-    api_key,
-    model_name,
-    contents,
-    system_instruction,
-    temperature,
-    max_output_tokens,
-    response_mime_type,
-    response_schema,
-    timeout_seconds,
-):
-    from google import genai
-    from google.genai import types
-
-    client = genai.Client(
-        api_key=api_key,
-        # google.genai HttpOptions.timeout je v milisekundách.
-        http_options=types.HttpOptions(timeout=int(max(10, timeout_seconds) * 1000)),
-    )
-
-    cfg_kwargs = {
-        'system_instruction': system_instruction,
-        'temperature': temperature,
-        'max_output_tokens': max_output_tokens,
-    }
-    if response_mime_type:
-        cfg_kwargs['response_mime_type'] = response_mime_type
-    if response_schema is not None:
-        cfg_kwargs['response_schema'] = response_schema
-
-    response = client.models.generate_content(
-        model=model_name,
-        contents=contents,
-        config=genai.types.GenerateContentConfig(**cfg_kwargs),
-    )
-    text = (getattr(response, 'text', '') or '').strip()
-    if text:
-        return text
-
-    candidates = getattr(response, 'candidates', None) or []
-    if candidates:
-        parts = []
-        content = getattr(candidates[0], 'content', None)
-        for p in (getattr(content, 'parts', None) or []):
-            part_text = getattr(p, 'text', None)
-            if part_text:
-                parts.append(part_text)
-        text = "\n".join(parts).strip()
-    return text
-
-
 def _generate_with_openai(
     *,
     api_key,
     model_name,
+    base_url=None,
     contents,
     system_instruction,
     temperature,
@@ -327,7 +352,10 @@ def _generate_with_openai(
             "OpenAI SDK nie je nainštalovaný. Doinštaluj balík `openai`."
         ) from exc
 
-    client = OpenAI(api_key=api_key, timeout=timeout_seconds)
+    kwargs_client = {'api_key': api_key, 'timeout': timeout_seconds}
+    if base_url:
+        kwargs_client['base_url'] = base_url
+    client = OpenAI(**kwargs_client)
     kwargs = {
         'model': model_name,
         'messages': [
@@ -352,6 +380,10 @@ def _generate_with_openai(
         # Some reasoning models ignore temperature.
         elif 'temperature' in msg and 'unsupported' in msg:
             kwargs.pop('temperature', None)
+            response = client.chat.completions.create(**kwargs)
+        # Some gateway-routed models reject response_format=json_object.
+        elif 'response_format' in msg:
+            kwargs.pop('response_format', None)
             response = client.chat.completions.create(**kwargs)
         else:
             raise
@@ -387,19 +419,20 @@ def generate_ai_text(
     retries=2,
     timeout_seconds=45,
 ):
-    """Jednotný wrapper na AI volanie naprieč providermi."""
+    """Jednotný wrapper na AI volanie (transport cez Vercel AI Gateway)."""
     provider, resolved_model = _resolve_provider_and_model(model_name=model_name)
-    resolved_api_key = (api_key or '').strip() or get_provider_api_key(provider)
+    gateway_model = _as_vercel_model_ref(provider, resolved_model)
+    resolved_api_key = (api_key or '').strip() or get_provider_api_key('vercel')
     if not resolved_api_key:
-        raise RuntimeError(f"API key pre provider `{provider}` nie je nastavený.")
+        raise RuntimeError("API key pre Vercel AI Gateway nie je nastavený.")
 
     ttl_seconds = _resolve_cache_ttl_seconds(cache_ttl_seconds)
     cache_enabled = _is_cache_enabled(ttl_seconds)
     cache_key = ''
     if cache_enabled:
         cache_key = _build_ai_cache_key(
-            provider=provider,
-            model_name=resolved_model,
+            provider='vercel',
+            model_name=gateway_model,
             contents=contents,
             system_instruction=system_instruction,
             temperature=temperature,
@@ -417,30 +450,26 @@ def generate_ai_text(
     for attempt in range(attempts):
         reserve_ai_call()
         try:
-            if provider == 'openai':
-                text = _generate_with_openai(
-                    api_key=resolved_api_key,
-                    model_name=resolved_model,
-                    contents=contents,
-                    system_instruction=system_instruction,
-                    temperature=temperature,
-                    max_output_tokens=max_output_tokens,
-                    response_mime_type=response_mime_type,
-                    timeout_seconds=timeout_seconds,
-                )
-            else:
-                text = _generate_with_gemini(
-                    api_key=resolved_api_key,
-                    model_name=resolved_model,
-                    contents=contents,
-                    system_instruction=system_instruction,
-                    temperature=temperature,
-                    max_output_tokens=max_output_tokens,
-                    response_mime_type=response_mime_type,
-                    response_schema=response_schema,
-                    timeout_seconds=timeout_seconds,
-                )
+            base_url = (
+                getattr(settings, 'VERCEL_AI_GATEWAY_BASE_URL', 'https://ai-gateway.vercel.sh/v1')
+                or 'https://ai-gateway.vercel.sh/v1'
+            ).strip()
+            text = _generate_with_openai(
+                api_key=resolved_api_key,
+                model_name=gateway_model,
+                base_url=base_url.rstrip('/'),
+                contents=contents,
+                system_instruction=system_instruction,
+                temperature=temperature,
+                max_output_tokens=max_output_tokens,
+                response_mime_type=response_mime_type,
+                timeout_seconds=timeout_seconds,
+            )
         except Exception as exc:
+            if _is_provider_quota_error(exc):
+                raise AILimitExceededError(
+                    'Externý AI provider momentálne hlási vyčerpanú kvótu (429).'
+                ) from exc
             last_exc = exc
             if attempt + 1 < attempts:
                 time.sleep(0.4 * (attempt + 1))
@@ -452,8 +481,8 @@ def generate_ai_text(
             if cache_enabled and cache_key:
                 _store_cached_ai_response(
                     cache_key,
-                    provider=provider,
-                    model_name=resolved_model,
+                    provider='vercel',
+                    model_name=gateway_model,
                     text=text,
                     ttl_seconds=ttl_seconds,
                 )
@@ -473,7 +502,7 @@ def get_gemini_model(model_name=None):
 
 
 def get_gemini_api_key(api_key=None):
-    return (api_key or '').strip() or get_provider_api_key('gemini')
+    return (api_key or '').strip() or get_provider_api_key('vercel')
 
 
 def get_gemini_max_calls_daily():
