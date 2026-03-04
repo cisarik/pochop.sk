@@ -47,7 +47,23 @@ def _clean_model_badge_label(label):
         return ''
     provider_prefix = 'vercel ai gateway '
     if cleaned.lower().startswith(provider_prefix):
-        return cleaned[len(provider_prefix):].strip()
+        cleaned = cleaned[len(provider_prefix):].strip()
+
+    # Normalize provider route/prefix styles to model-only label in header trigger.
+    providers = {
+        'openai', 'google', 'gemini', 'anthropic', 'xai',
+        'mistral', 'meta', 'deepseek', 'perplexity',
+    }
+    compact = cleaned.strip()
+    if ' ' not in compact:
+        if '/' in compact:
+            owner, model = compact.split('/', 1)
+            if owner.strip().lower() in providers and model.strip():
+                return model.strip()
+        if ':' in compact:
+            owner, model = compact.split(':', 1)
+            if owner.strip().lower() in providers and model.strip():
+                return model.strip()
     return cleaned
 
 

@@ -276,6 +276,51 @@ html.starfield-lite .nebula-layer {
     transform: translateY(-1px) scale(1.012);
     filter: drop-shadow(0 0 14px rgba(196, 144, 255, 0.45)) drop-shadow(0 0 34px rgba(147, 102, 242, 0.32)) saturate(1.1);
 }
+.logo-pochop--pro {
+    color: #ffe9b8;
+    -webkit-text-fill-color: currentColor;
+    filter: drop-shadow(0 0 10px rgba(255, 219, 135, 0.44)) drop-shadow(0 0 28px rgba(246, 183, 74, 0.34));
+    animation: proGoldPulse 3.2s ease-in-out infinite;
+}
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+    .logo-pochop--pro {
+        background: linear-gradient(112deg, #fff8df 10%, #ffd174 30%, #fff5d2 52%, #f2b64d 72%, #fff2c0 92%);
+        background-size: 245% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        -webkit-text-fill-color: transparent;
+        animation: logoGradientFlow 4.8s ease-in-out infinite, proGoldPulse 3.2s ease-in-out infinite;
+    }
+}
+.nav-brand-wrap--pro:hover .logo-pochop--pro {
+    transform: translateY(-1px) scale(1.014);
+    filter: drop-shadow(0 0 16px rgba(255, 223, 146, 0.56)) drop-shadow(0 0 38px rgba(246, 187, 82, 0.44));
+}
+.nav-tagline--pro {
+    color: #fff2cd;
+    text-shadow: 0 0 10px rgba(255, 215, 130, 0.3), 0 0 22px rgba(245, 184, 70, 0.2);
+    animation: proGoldPulse 3.5s ease-in-out infinite;
+}
+.nav-tagline--pro .nav-tagline-ai {
+    background: linear-gradient(108deg, #fff7dc 8%, #ffd57d 32%, #fff5d8 54%, #f3bf5a 74%, #fff0be 92%);
+    background-size: 230% 100%;
+    animation: aiWordShimmer 4.4s ease-in-out infinite;
+}
+@keyframes proGoldPulse {
+    0% {
+        text-shadow: 0 0 10px rgba(255, 214, 124, 0.28), 0 0 24px rgba(238, 172, 55, 0.18);
+        filter: brightness(1);
+    }
+    50% {
+        text-shadow: 0 0 16px rgba(255, 230, 163, 0.52), 0 0 38px rgba(247, 189, 77, 0.34);
+        filter: brightness(1.06);
+    }
+    100% {
+        text-shadow: 0 0 10px rgba(255, 214, 124, 0.28), 0 0 24px rgba(238, 172, 55, 0.18);
+        filter: brightness(1);
+    }
+}
 .nav-right {
     display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; justify-content: flex-end;
     justify-self: end;

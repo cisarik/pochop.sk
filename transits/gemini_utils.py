@@ -9,6 +9,12 @@ from django.db import transaction
 from django.db.utils import OperationalError, ProgrammingError
 from django.utils import timezone
 
+from .ai_request_context import get_ai_request_context
+from .credits import (
+    charge_user_for_ai_call,
+    ensure_user_can_afford_ai_call,
+)
+
 
 SUPPORTED_AI_PROVIDERS = ('gemini', 'openai', 'vercel')
 
@@ -387,22 +393,56 @@ def _generate_with_openai(
             response = client.chat.completions.create(**kwargs)
         else:
             raise
+    usage = _extract_usage_tokens(response)
     choices = getattr(response, 'choices', None) or []
     if not choices:
-        return ''
+        return {'text': '', 'usage': usage}
     message = getattr(choices[0], 'message', None)
     if not message:
-        return ''
+        return {'text': '', 'usage': usage}
     content = getattr(message, 'content', '')
     if isinstance(content, str):
-        return content.strip()
+        text = content.strip()
+        return {'text': text, 'usage': usage}
     if isinstance(content, list):
         parts = []
         for item in content:
             if isinstance(item, dict) and item.get('type') == 'text':
                 parts.append(item.get('text', ''))
-        return ''.join(parts).strip()
-    return ''
+        return {'text': ''.join(parts).strip(), 'usage': usage}
+    return {'text': '', 'usage': usage}
+
+
+def _extract_usage_tokens(response):
+    usage = getattr(response, 'usage', None)
+    if usage is None and isinstance(response, dict):
+        usage = response.get('usage')
+
+    def _read_int(obj, keys):
+        for key in keys:
+            val = None
+            if isinstance(obj, dict):
+                val = obj.get(key)
+            else:
+                val = getattr(obj, key, None)
+            if val is None:
+                continue
+            try:
+                return max(0, int(val))
+            except Exception:
+                continue
+        return 0
+
+    prompt_tokens = _read_int(usage, ('prompt_tokens', 'input_tokens'))
+    completion_tokens = _read_int(usage, ('completion_tokens', 'output_tokens'))
+    total_tokens = _read_int(usage, ('total_tokens',))
+    if total_tokens <= 0:
+        total_tokens = prompt_tokens + completion_tokens
+    return {
+        'prompt_tokens': prompt_tokens,
+        'completion_tokens': completion_tokens,
+        'total_tokens': max(0, total_tokens),
+    }
 
 
 def generate_ai_text(
@@ -429,6 +469,10 @@ def generate_ai_text(
     ttl_seconds = _resolve_cache_ttl_seconds(cache_ttl_seconds)
     cache_enabled = _is_cache_enabled(ttl_seconds)
     cache_key = ''
+    request_ctx = get_ai_request_context()
+    request_user_id = request_ctx.get('user_id')
+    request_path = request_ctx.get('path', '')
+    request_method = request_ctx.get('method', '')
     if cache_enabled:
         cache_key = _build_ai_cache_key(
             provider='vercel',
@@ -448,13 +492,15 @@ def generate_ai_text(
     last_exc = None
     attempts = max(1, retries)
     for attempt in range(attempts):
+        if request_user_id:
+            ensure_user_can_afford_ai_call(request_user_id)
         reserve_ai_call()
         try:
             base_url = (
                 getattr(settings, 'VERCEL_AI_GATEWAY_BASE_URL', 'https://ai-gateway.vercel.sh/v1')
                 or 'https://ai-gateway.vercel.sh/v1'
             ).strip()
-            text = _generate_with_openai(
+            response_payload = _generate_with_openai(
                 api_key=resolved_api_key,
                 model_name=gateway_model,
                 base_url=base_url.rstrip('/'),
@@ -465,6 +511,12 @@ def generate_ai_text(
                 response_mime_type=response_mime_type,
                 timeout_seconds=timeout_seconds,
             )
+            if isinstance(response_payload, dict):
+                text = str(response_payload.get('text') or '').strip()
+                usage_tokens = response_payload.get('usage') if isinstance(response_payload.get('usage'), dict) else {}
+            else:
+                text = str(response_payload or '').strip()
+                usage_tokens = {}
         except Exception as exc:
             if _is_provider_quota_error(exc):
                 raise AILimitExceededError(
@@ -476,8 +528,21 @@ def generate_ai_text(
                 continue
             raise
 
-        text = (text or '').strip()
         if text:
+            if request_user_id:
+                charge_user_for_ai_call(
+                    user_id=request_user_id,
+                    model_ref=gateway_model,
+                    endpoint_path=request_path,
+                    usage=usage_tokens,
+                    response_text=text,
+                    max_output_tokens=max_output_tokens,
+                    cache_hit=False,
+                    meta={
+                        'provider': 'vercel',
+                        'request_method': request_method,
+                    },
+                )
             if cache_enabled and cache_key:
                 _store_cached_ai_response(
                     cache_key,

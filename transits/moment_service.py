@@ -4,6 +4,7 @@ from datetime import date, datetime, time
 import pytz
 import swisseph as swe
 
+from .credits import AICreditLimitExceededError
 from .engine import ASPECTS, ASPECT_NAMES_SK, PLANETS, check_aspect, datetime_to_jd, longitude_to_sign
 from .gemini_utils import (
     GeminiLimitExceededError,
@@ -429,6 +430,9 @@ def _generate_ai_moment_report(report_date, planets, aspects, angles, location, 
         return parsed
     except GeminiLimitExceededError:
         logger.warning("Moment report: denný limit API volaní prekročený.")
+        return _fallback_report(aspects)
+    except AICreditLimitExceededError:
+        logger.warning("Moment report: nedostatok kreditov pre requestové AI volanie.")
         return _fallback_report(aspects)
     except Exception as exc:
         logger.error("Generovanie moment reportu cez AI provider zlyhalo: %s", exc)

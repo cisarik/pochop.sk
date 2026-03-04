@@ -19,10 +19,13 @@ from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from django.utils import timezone
 
+from .ai_request_context import clear_ai_request_context, set_ai_request_context
+from .credits import AICreditLimitExceededError
 from .engine import calculate_natal_chart, calculate_natal_positions, get_timezone_for_location
 from .gemini_utils import GeminiLimitExceededError, generate_ai_text, parse_json_payload
 from .moment_service import enrich_moment_aspects_with_text, get_or_generate_moment_report
 from .models import (
+    AICreditTransaction,
     AIDayReportCache,
     AIDayReportDailyStat,
     AINatalAnalysisCache,
@@ -105,6 +108,16 @@ class IndexSecurityUxTests(TestCase):
             r'<span class="nav-ai-trigger-model">\s*GPT-5\.2\s*</span>',
         )
 
+    def test_index_nav_model_trigger_trims_owner_prefix_for_route_style(self):
+        GeminiConfig.objects.create(default_model='vercel:anthropic/claude-sonnet-4.6', max_calls_daily=500)
+        client = Client(HTTP_HOST='pochop.sk')
+        response = client.get(reverse('transits:index'))
+        self.assertEqual(response.status_code, 200)
+        self.assertRegex(
+            response.content.decode('utf-8'),
+            r'<span class="nav-ai-trigger-model">\s*claude-sonnet-4\.6\s*</span>',
+        )
+
     def test_index_adds_pro_dropdown_skin_for_pro_user(self):
         GeminiConfig.objects.create(default_model='openai:gpt-5.2', max_calls_daily=500)
         AIModelOption.objects.update_or_create(
@@ -130,6 +143,14 @@ class IndexSecurityUxTests(TestCase):
         self.assertRegex(
             response.content.decode('utf-8'),
             r'class="nav-ai nav-ai--tagline nav-ai--pro"',
+        )
+        self.assertRegex(
+            response.content.decode('utf-8'),
+            r'class="nav-brand-wrap nav-brand-wrap--pro"',
+        )
+        self.assertRegex(
+            response.content.decode('utf-8'),
+            r'class="nav-tagline nav-tagline--pro"',
         )
 
 
@@ -841,6 +862,33 @@ class AIDayReportCompareApiTests(TestCase):
         self.assertTrue(payload['results'][1].get('limit_exceeded'))
         self.assertTrue(payload.get('partial'))
         self.assertEqual(len(payload.get('errors', [])), 1)
+
+    @patch('transits.views.has_ai_key')
+    @patch('transits.views._compute_transits_for_profile')
+    @patch('transits.views.generate_gemini_text')
+    def test_compare_endpoint_returns_402_when_only_credit_error(
+        self,
+        generate_ai_text_mock,
+        compute_transits_mock,
+        has_key_mock,
+    ):
+        has_key_mock.return_value = True
+        compute_transits_mock.return_value = self._active_transits_today()
+        generate_ai_text_mock.side_effect = AICreditLimitExceededError('no credits')
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({
+                'profile_id': self.profile.pk,
+                'day_offset': 0,
+                'model_refs': ['openai:gpt-5.2'],
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 402)
+        payload = response.json()
+        self.assertEqual(payload.get('ok_models'), 0)
+        self.assertIn('kredit', payload['errors'][0].get('error', '').lower())
 
 
 class NatalAnalysisCompareCacheTests(TestCase):
@@ -2257,6 +2305,147 @@ class AIResponseCacheTests(TestCase):
         kwargs = openai_mock.call_args.kwargs
         self.assertEqual(kwargs.get('base_url'), 'https://ai-gateway.vercel.sh/v1')
         self.assertEqual(kwargs.get('model_name'), 'openai/gpt-5.2')
+
+
+class AICreditBillingTests(TestCase):
+    @override_settings(
+        VERCEL_AI_GATEWAY_API_KEY='test-vercel-key',
+        AI_RESPONSE_CACHE_ENABLED=False,
+        AI_CREDITS_OUTPUT_PER_1K_TOKENS=2,
+        AI_CREDITS_INPUT_PER_1K_TOKENS=0,
+        AI_CREDITS_MIN_CHARGE=1,
+    )
+    @patch('transits.gemini_utils._generate_with_openai')
+    @patch('transits.gemini_utils.reserve_ai_call')
+    def test_generate_ai_text_charges_pro_user_on_cache_miss(
+        self,
+        reserve_call_mock,
+        openai_mock,
+    ):
+        user = User.objects.create_user(
+            username='credit_user',
+            email='credit_user@example.com',
+            password='StrongPass123!',
+        )
+        UserProStatus.objects.create(user=user, is_pro=True, credits=20)
+        openai_mock.return_value = {
+            'text': '{"ok":true}',
+            'usage': {'prompt_tokens': 100, 'completion_tokens': 1700, 'total_tokens': 1800},
+        }
+
+        set_ai_request_context(user_id=user.pk, path='/api/ai/day-report/', method='POST')
+        try:
+            response_text = generate_ai_text(
+                model_name='openai:gpt-5.2',
+                contents='Vrat JSON',
+                system_instruction='Len JSON.',
+                temperature=0,
+                max_output_tokens=2000,
+                response_mime_type='application/json',
+                retries=1,
+                timeout_seconds=10,
+            )
+        finally:
+            clear_ai_request_context()
+
+        self.assertEqual(response_text, '{"ok":true}')
+        self.assertEqual(openai_mock.call_count, 1)
+        self.assertEqual(reserve_call_mock.call_count, 1)
+        status = UserProStatus.objects.get(user=user)
+        self.assertEqual(status.credits, 16)  # ceil(1700*2/1000)=4
+        tx = AICreditTransaction.objects.get(user=user)
+        self.assertEqual(tx.event_type, 'charge')
+        self.assertEqual(tx.credits_delta, -4)
+        self.assertEqual(tx.completion_tokens, 1700)
+        self.assertEqual(tx.endpoint_path, '/api/ai/day-report/')
+
+    @override_settings(
+        VERCEL_AI_GATEWAY_API_KEY='test-vercel-key',
+        AI_RESPONSE_CACHE_ENABLED=True,
+        AI_RESPONSE_CACHE_TTL_SECONDS=3600,
+        AI_CREDITS_OUTPUT_PER_1K_TOKENS=2,
+        AI_CREDITS_INPUT_PER_1K_TOKENS=0,
+        AI_CREDITS_MIN_CHARGE=1,
+    )
+    @patch('transits.gemini_utils._generate_with_openai')
+    @patch('transits.gemini_utils.reserve_ai_call')
+    def test_generate_ai_text_cache_hit_does_not_charge_twice(
+        self,
+        reserve_call_mock,
+        openai_mock,
+    ):
+        user = User.objects.create_user(
+            username='credit_cache_user',
+            email='credit_cache_user@example.com',
+            password='StrongPass123!',
+        )
+        UserProStatus.objects.create(user=user, is_pro=True, credits=20)
+        openai_mock.return_value = {
+            'text': '{"ok":true}',
+            'usage': {'prompt_tokens': 10, 'completion_tokens': 1500, 'total_tokens': 1510},
+        }
+
+        kwargs = {
+            'model_name': 'openai:gpt-5.2',
+            'contents': 'Vrat JSON',
+            'system_instruction': 'Len JSON.',
+            'temperature': 0,
+            'max_output_tokens': 2000,
+            'response_mime_type': 'application/json',
+            'retries': 1,
+            'timeout_seconds': 10,
+        }
+        set_ai_request_context(user_id=user.pk, path='/api/ai/day-report/', method='POST')
+        try:
+            first = generate_ai_text(**kwargs)
+            second = generate_ai_text(**kwargs)
+        finally:
+            clear_ai_request_context()
+
+        self.assertEqual(first, second)
+        self.assertEqual(openai_mock.call_count, 1)
+        self.assertEqual(reserve_call_mock.call_count, 1)
+        status = UserProStatus.objects.get(user=user)
+        self.assertEqual(status.credits, 17)
+        self.assertEqual(AICreditTransaction.objects.filter(user=user, event_type='charge').count(), 1)
+
+    @override_settings(
+        VERCEL_AI_GATEWAY_API_KEY='test-vercel-key',
+        AI_RESPONSE_CACHE_ENABLED=False,
+        AI_CREDITS_MIN_CHARGE=1,
+    )
+    @patch('transits.gemini_utils._generate_with_openai')
+    @patch('transits.gemini_utils.reserve_ai_call')
+    def test_generate_ai_text_blocks_when_pro_user_has_zero_credits(
+        self,
+        reserve_call_mock,
+        openai_mock,
+    ):
+        user = User.objects.create_user(
+            username='credit_zero_user',
+            email='credit_zero_user@example.com',
+            password='StrongPass123!',
+        )
+        UserProStatus.objects.create(user=user, is_pro=True, credits=0)
+        set_ai_request_context(user_id=user.pk, path='/api/ai/day-report/', method='POST')
+        try:
+            with self.assertRaises(AICreditLimitExceededError):
+                generate_ai_text(
+                    model_name='openai:gpt-5.2',
+                    contents='Vrat JSON',
+                    system_instruction='Len JSON.',
+                    temperature=0,
+                    max_output_tokens=100,
+                    response_mime_type='application/json',
+                    retries=1,
+                    timeout_seconds=10,
+                )
+        finally:
+            clear_ai_request_context()
+
+        self.assertEqual(openai_mock.call_count, 0)
+        self.assertEqual(reserve_call_mock.call_count, 0)
+        self.assertEqual(AICreditTransaction.objects.filter(user=user).count(), 0)
 
 
 @skipUnless(

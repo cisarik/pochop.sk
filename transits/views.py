@@ -81,6 +81,8 @@ from .security import (
     store_profile_key_in_session,
 )
 from .access import user_can_switch_ai_model, user_has_pro_account
+from .ai_request_context import clear_ai_request_context, set_ai_request_context
+from .credits import AICreditLimitExceededError
 from .services.geocoding import geocode_forward, geocode_reverse
 from .services.ip_geo import ip_to_location
 from .services.city_lookup import find_nearest_slovak_city
@@ -856,7 +858,15 @@ def _generate_and_save_analyses_background(profile_id):
     close_old_connections()
     try:
         profile = NatalProfile.objects.get(pk=profile_id)
-        success = _generate_and_save_analyses(profile)
+        set_ai_request_context(
+            user_id=getattr(profile, 'user_id', None),
+            path='/internal/natal-analysis/background',
+            method='WORKER',
+        )
+        try:
+            success = _generate_and_save_analyses(profile)
+        finally:
+            clear_ai_request_context()
         if success:
             _set_analysis_error(profile_id, None)
         elif not _has_gemini_key():
@@ -1872,6 +1882,8 @@ def _generate_natal_analyses_payload(profile, model_name=None, request=None):
                 )
     except GeminiLimitExceededError:
         raise
+    except AICreditLimitExceededError:
+        raise
     except Exception as exc:
         logger.error("Natálna analýza AI zlyhala pre %s: %s", profile.name, exc)
         fallback_used = True
@@ -1917,6 +1929,8 @@ def _generate_natal_analyses_payload(profile, model_name=None, request=None):
                 )
     except GeminiLimitExceededError:
         raise
+    except AICreditLimitExceededError:
+        raise
     except Exception as exc:
         logger.error("Analýza aspektov AI zlyhala pre %s: %s", profile.name, exc)
         fallback_used = True
@@ -1942,6 +1956,9 @@ def _generate_and_save_analyses(profile, model_name=None):
         payload = _generate_natal_analyses_payload(profile, model_name=model_name, request=None)
     except GeminiLimitExceededError:
         logger.warning("Denný limit AI prekročený pri natálnej analýze (%s).", profile.name)
+        return False
+    except AICreditLimitExceededError:
+        logger.warning("Nedostatok kreditov pri natálnej analýze (%s).", profile.name)
         return False
     except Exception as exc:
         logger.error("Generovanie natálnej analýzy zlyhalo pre %s: %s", profile.name, exc)
@@ -2181,6 +2198,12 @@ def _get_or_generate_natal_compare_for_model(profile, model_ref, *, request=None
             status=503,
             limit_exceeded=True,
         )
+    except AICreditLimitExceededError:
+        return _build_natal_compare_error_result(
+            model_ref,
+            'Nedostatok AI kreditov. Dobite kredity a skús to znovu.',
+            status=402,
+        )
     except Exception as exc:
         logger.error("Natálna compare analýza zlyhala pre model %s: %s", model_ref, exc)
         return _build_natal_compare_error_result(
@@ -2252,7 +2275,12 @@ def api_natal_analysis_compare(request):
     success_count = sum(1 for item in results if item.get('ok'))
     status_code = 200
     if success_count == 0 and errors:
-        status_code = 503 if any((err.get('status') or 0) >= 500 for err in errors) else 400
+        if any((err.get('status') or 0) >= 500 for err in errors):
+            status_code = 503
+        elif any((err.get('status') or 0) == 402 for err in errors):
+            status_code = 402
+        else:
+            status_code = 400
 
     return JsonResponse({
         'profile_id': profile.pk,
@@ -2978,6 +3006,8 @@ def _generate_ai_day_payload_for_model(profile, target_date, active_transits, mo
         return parsed, fallback_used, had_error, warning
     except GeminiLimitExceededError:
         raise
+    except AICreditLimitExceededError:
+        raise
     except Exception as exc:
         logger.error("AI API error v AI hodnotení dňa (%s), používam fallback: %s", model_ref, exc)
         parsed = _fallback_ai_day_report(active_transits)
@@ -3037,6 +3067,14 @@ def _get_or_generate_ai_day_report_for_model(
             'Denný limit AI volaní bol prekročený. Skúste to neskôr.',
             limit_exceeded=True,
             status=503,
+        )
+        return result, err, active_transits
+    except AICreditLimitExceededError:
+        _record_ai_day_stats(normalized_ref, total_requests=1, errors_count=1)
+        result, err = _build_ai_day_error_result(
+            model_ref,
+            'Nedostatok AI kreditov. Dobite kredity a skús to znovu.',
+            status=402,
         )
         return result, err, active_transits
 
@@ -3192,7 +3230,12 @@ def ai_day_report_compare(request):
     success_count = sum(1 for item in results if item.get('ok'))
     status_code = 200
     if success_count == 0 and errors:
-        status_code = 503 if any((err.get('status') or 0) >= 500 for err in errors) else 400
+        if any((err.get('status') or 0) >= 500 for err in errors):
+            status_code = 503
+        elif any((err.get('status') or 0) == 402 for err in errors):
+            status_code = 402
+        else:
+            status_code = 400
 
     return JsonResponse({
         'profile_id': profile.pk,

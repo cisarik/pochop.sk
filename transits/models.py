@@ -157,6 +157,11 @@ class UserProStatus(models.Model):
         default=False,
         help_text='Určuje, či má používateľ Pro oprávnenia (napr. prepínanie AI modelov).',
     )
+    credits = models.BigIntegerField(
+        'AI kredity',
+        default=0,
+        help_text='Aktuálny kreditový zostatok pre AI volania (odpočítava sa len pri cache-miss).',
+    )
     created_at = models.DateTimeField('Vytvorené', auto_now_add=True)
     updated_at = models.DateTimeField('Aktualizované', auto_now=True)
 
@@ -762,6 +767,57 @@ class AINatalAnalysisCache(models.Model):
 
     def __str__(self):
         return f"{self.model_ref} | profile={self.profile_id}"
+
+
+class AICreditTransaction(models.Model):
+    """Audit transakcií kreditov viazaných na AI volania."""
+
+    EVENT_CHOICES = [
+        ('charge', 'Odpočet'),
+        ('topup', 'Dobitie'),
+        ('adjustment', 'Úprava'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='ai_credit_transactions',
+        verbose_name='Používateľ',
+    )
+    pro_status = models.ForeignKey(
+        UserProStatus,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='credit_transactions',
+        verbose_name='Pro status',
+    )
+    event_type = models.CharField('Typ transakcie', max_length=20, choices=EVENT_CHOICES, db_index=True)
+    credits_delta = models.BigIntegerField('Zmena kreditov')
+    credits_before = models.BigIntegerField('Stav pred')
+    credits_after = models.BigIntegerField('Stav po')
+    credits_requested = models.PositiveBigIntegerField('Požadovaný odpočet', default=0)
+    model_ref = models.CharField('Model', max_length=120, blank=True, default='', db_index=True)
+    endpoint_path = models.CharField('Endpoint', max_length=220, blank=True, default='')
+    prompt_tokens = models.PositiveIntegerField('Prompt tokeny', default=0)
+    completion_tokens = models.PositiveIntegerField('Output tokeny', default=0)
+    total_tokens = models.PositiveIntegerField('Total tokeny', default=0)
+    usage_source = models.CharField('Zdroj usage', max_length=20, blank=True, default='')
+    cache_hit = models.BooleanField('Cache hit', default=False)
+    meta_json = models.JSONField('Meta', default=dict, blank=True)
+    created_at = models.DateTimeField('Vytvorené', auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'AI kredit transakcia'
+        verbose_name_plural = 'AI kredit transakcie'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'created_at']),
+            models.Index(fields=['event_type', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} | {self.event_type} | {self.credits_delta}"
 
 
 class AIDayReportDailyStat(models.Model):

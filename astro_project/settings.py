@@ -37,6 +37,10 @@ AI_MODEL_SWITCH_EAGER_USERS_REFRESH = os.environ.get(
 ).lower() in ('true', '1', 'yes')
 AI_RESPONSE_CACHE_ENABLED = os.environ.get('AI_RESPONSE_CACHE_ENABLED', 'True').lower() in ('true', '1', 'yes')
 AI_RESPONSE_CACHE_TTL_SECONDS = int(os.environ.get('AI_RESPONSE_CACHE_TTL_SECONDS', '86400'))
+AI_CREDITS_MIN_CHARGE = int(os.environ.get('AI_CREDITS_MIN_CHARGE', '1'))
+AI_CREDITS_INPUT_PER_1K_TOKENS = int(os.environ.get('AI_CREDITS_INPUT_PER_1K_TOKENS', '0'))
+AI_CREDITS_OUTPUT_PER_1K_TOKENS = int(os.environ.get('AI_CREDITS_OUTPUT_PER_1K_TOKENS', '2'))
+AI_USAGE_EST_CHARS_PER_TOKEN = float(os.environ.get('AI_USAGE_EST_CHARS_PER_TOKEN', '4'))
 
 # Geocoding / location services
 GEOCODING_PROVIDER_CLASS = os.environ.get('GEOCODING_PROVIDER_CLASS', '')
@@ -113,6 +117,7 @@ MIDDLEWARE = [
     'transits.middleware.GeminiQuotaMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'transits.middleware.AICreditContextMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]

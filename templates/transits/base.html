@@ -19,20 +19,17 @@
 
     <nav class="navbar">
         <div class="nav-container">
-            <div class="nav-brand-wrap">
+            <div class="nav-brand-wrap{% if user.is_authenticated and has_pro_account %} nav-brand-wrap--pro{% endif %}">
                 <a href="{% url 'transits:index' %}" class="nav-logo">
-                    <span class="logo-pochop">⧂&nbsp;Pochop.sk</span>
+                    <span class="logo-pochop{% if user.is_authenticated and has_pro_account %} logo-pochop--pro{% endif %}">⧂&nbsp;Pochop.sk</span>
                 </a>
             </div>
             <div class="nav-tagline-wrap">
-                <p class="nav-tagline">Pochop sám seba pomocou astrológie a <span class="nav-tagline-ai"><b>AI</b></span></p>
+                <p class="nav-tagline{% if user.is_authenticated and has_pro_account %} nav-tagline--pro{% endif %}">Pochop sám seba pomocou astrológie a <span class="nav-tagline-ai"><b>AI</b></span></p>
                 <div class="nav-ai nav-ai--tagline{% if user.is_authenticated and has_pro_account %} nav-ai--pro{% endif %}" data-ai-dropdown data-ai-switch-url="{% url 'transits:api_select_ai_model' %}">
                     <button type="button" class="nav-ai-trigger {% if not can_switch_ai_model %}nav-ai-trigger--locked{% endif %}" aria-label="Aktívny AI model" aria-expanded="false" aria-controls="nav-ai-dropdown-panel">
                         <span class="nav-ai-trigger-copy">
                             <span class="nav-ai-trigger-model">{{ active_ai_model_label }}</span>
-                            {% if not can_switch_ai_model %}
-                                <span class="nav-ai-dropdown-hint">Model compare dostupný len pre Pro</span>
-                            {% endif %}
                         </span>
                         <span class="nav-ai-trigger-arrow" aria-hidden="true">▾</span>
                     </button>
@@ -46,9 +43,9 @@
                                             <span class="nav-ai-item-label">{{ ai_item.label }}</span>
                                             <span class="nav-ai-item-runtime">{{ ai_item.provider_label }}</span>
                                         </button>
-                                    {% else %}
-                                        <span class="nav-ai-item-runtime"><i>Pro</i> účet je potrebný pre zmenu modelu</span>
-                                    {% endif %}
+                                        {% elif forloop.counter0 == 0 %}
+                                            <span class="nav-ai-item-runtime" style="font-size: 0.9rem;color: #ffedbf;">Na zmenu modelu potrebujete  ✨<i style="font-weight: 700;">Pro</i> účet a dostatok kreditov</span>
+                                        {% endif %}
                                 </li>
                             {% empty %}
                                 <li class="nav-ai-list-item">

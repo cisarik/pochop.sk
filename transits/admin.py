@@ -8,6 +8,7 @@ from django.http import HttpResponseRedirect
 from django.urls import path, reverse
 
 from .access import user_has_pro_account
+from .credits import record_credit_adjustment, top_up_user_credits
 from .vercel_gateway import sync_vercel_models, VercelGatewaySyncError
 from .models import (
     TransitAspect,
@@ -23,6 +24,7 @@ from .models import (
     AIDayReportCache,
     AIDayReportDailyStat,
     AINatalAnalysisCache,
+    AICreditTransaction,
 )
 
 admin.site.unregister(User)
@@ -36,7 +38,7 @@ class UserProStatusInline(admin.StackedInline):
     can_delete = False
     verbose_name = 'Pro účet'
     verbose_name_plural = 'Pro účet'
-    fields = ['is_pro']
+    fields = ['is_pro', 'credits']
 
     def get_extra(self, request, obj=None, **kwargs):
         if obj is None:
@@ -141,15 +143,64 @@ class NatalProfileAdmin(admin.ModelAdmin):
 
 @admin.register(UserProStatus)
 class UserProStatusAdmin(admin.ModelAdmin):
-    list_display = ['user', 'is_pro', 'updated_at']
+    list_display = ['user', 'is_pro', 'credits', 'updated_at']
     list_filter = ['is_pro', 'updated_at']
     search_fields = ['user__username', 'user__email']
     list_editable = ['is_pro']
     readonly_fields = ['created_at', 'updated_at']
+    actions = ['add_500_credits', 'add_2000_credits', 'add_10000_credits']
+
+    @admin.action(description='Pridať +500 kreditov')
+    def add_500_credits(self, request, queryset):
+        self._bulk_top_up(request, queryset, 500)
+
+    @admin.action(description='Pridať +2000 kreditov')
+    def add_2000_credits(self, request, queryset):
+        self._bulk_top_up(request, queryset, 2000)
+
+    @admin.action(description='Pridať +10000 kreditov')
+    def add_10000_credits(self, request, queryset):
+        self._bulk_top_up(request, queryset, 10000)
+
+    def _bulk_top_up(self, request, queryset, amount):
+        success = 0
+        for row in queryset.only('user_id').iterator():
+            try:
+                top_up_user_credits(
+                    user_id=row.user_id,
+                    amount=int(amount),
+                    note=f'Admin action by {request.user.username}',
+                )
+                success += 1
+            except Exception:
+                continue
+        self.message_user(
+            request,
+            f'Kredity navýšené pre {success} používateľov (+{int(amount)}).',
+            level=messages.SUCCESS,
+        )
 
     def save_model(self, request, obj, form, change):
+        previous_credits = None
+        if obj.pk:
+            previous_credits = (
+                UserProStatus.objects
+                .filter(pk=obj.pk)
+                .values_list('credits', flat=True)
+                .first()
+            )
         super().save_model(request, obj, form, change)
         NatalProfile.objects.filter(user=obj.user).update(is_pro=bool(obj.is_pro))
+        if previous_credits is not None:
+            delta = int(obj.credits or 0) - int(previous_credits or 0)
+            if delta:
+                record_credit_adjustment(
+                    user_id=obj.user_id,
+                    delta=delta,
+                    credits_before=previous_credits,
+                    credits_after=obj.credits,
+                    note=f'Manual admin edit by {request.user.username}',
+                )
 
 
 @admin.register(SlovakCity)
@@ -516,3 +567,39 @@ class AINatalAnalysisCacheAdmin(admin.ModelAdmin):
         'updated_at',
     ]
     ordering = ['-updated_at']
+
+
+@admin.register(AICreditTransaction)
+class AICreditTransactionAdmin(admin.ModelAdmin):
+    list_display = [
+        'created_at',
+        'user',
+        'event_type',
+        'credits_delta',
+        'credits_before',
+        'credits_after',
+        'model_ref',
+        'completion_tokens',
+        'cache_hit',
+    ]
+    list_filter = ['event_type', 'cache_hit', 'model_ref', 'created_at']
+    search_fields = ['user__username', 'user__email', 'model_ref', 'endpoint_path']
+    readonly_fields = [
+        'user',
+        'pro_status',
+        'event_type',
+        'credits_delta',
+        'credits_before',
+        'credits_after',
+        'credits_requested',
+        'model_ref',
+        'endpoint_path',
+        'prompt_tokens',
+        'completion_tokens',
+        'total_tokens',
+        'usage_source',
+        'cache_hit',
+        'meta_json',
+        'created_at',
+    ]
+    ordering = ['-created_at']
